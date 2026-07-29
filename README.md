@@ -7,7 +7,7 @@ El proceso de negocio (roles, flujo mensual, convenciones) está en [PROCESO.md]
 ## Cómo funciona
 
 1. **Fuente de datos** (a elección al abrir la app):
-   - **Carpeta local / OneDrive**: seleccionas la carpeta sincronizada (o una copia descargada). Funciona sin ninguna configuración.
+   - **Carpeta local / OneDrive**: seleccionas la carpeta de SharePoint sincronizada con OneDrive. Funciona sin ninguna configuración y la app recuerda la carpeta para las siguientes veces.
    - **SharePoint en línea**: login con la cuenta Global66 (MSAL) y lectura vía Microsoft Graph. Requiere el registro en Azure AD descrito abajo.
 2. **Parsers por proveedor** ([parsers.js](parsers.js)): la subcarpeta determina el lector — boletas/notas de cobro de Moraga, facturas exentas de Dentons/Aninat, notas de cobro UF de Sensus, minutas xlsx de Andes Latam, planillas tabulares de Colombia/Argentina. Archivos "ANULADA" se excluyen; si un mes de Moraga tiene boleta y nota de cobro, la boleta manda (no se duplica).
 3. **Base histórica**: la hoja `Base resumen` del `Consolidado Paises.xlsx` se ingesta tal cual — los valores ya reportados se mantienen y tienen prioridad: si un país+mes ya está en la base, los archivos de ese período se omiten (no hay doble conteo). La lectura automática rige para los meses nuevos.
@@ -17,17 +17,25 @@ El proceso de negocio (roles, flujo mensual, convenciones) está en [PROCESO.md]
 
 Todo el procesamiento ocurre en el navegador; ningún documento sale hacia servicios de terceros.
 
-## Ejecutar
+## Ejecutar (uso diario)
 
-Es una app estática, sin build:
+**Doble clic en `Abrir Consolidado Legal.command`** — levanta el servidor local y abre el navegador. La primera vez: *Elegir carpeta…* y seleccionar la carpeta de SharePoint sincronizada con OneDrive. Desde ahí en adelante la app la recuerda: aparece el botón **↻ Actualizar desde "[carpeta]"** y con un clic relee los archivos y regenera el reporte con las cifras al día.
+
+> En macOS, la primera vez puede pedir confirmación por ser un archivo descargado: clic derecho → Abrir.
+
+Equivalente por terminal, si prefieres:
 
 ```bash
 cd consolidado-legal && python3 -m http.server 4173
 ```
 
-y abrir `http://localhost:4173`. Para publicarla (GitHub Pages u otro hosting estático) basta copiar esta carpeta. La carpeta `muestras/` está en `.gitignore` porque contiene documentos reales — no debe commitearse.
+Requisito para el botón que recuerda la carpeta: Chrome o Edge (File System Access API). En Safari/Firefox funciona igual, pero hay que elegir la carpeta cada vez.
 
-Modo prueba: `http://localhost:4173/?demo` carga las muestras de `muestras/manifest.json`.
+### Por qué no está publicado en una URL
+
+Este repositorio es **privado** y la app no se publica en GitHub Pages: los datos del consolidado son confidenciales y un sitio estático público los expondría. Cada usuario autorizado ejecuta la app localmente sobre la carpeta de SharePoint a la que ya tiene acceso, y los datos nunca salen de su navegador. La carpeta `muestras/` está en `.gitignore` por la misma razón.
+
+La versión con URL compartible (sin datos publicados) llega con el registro de Azure AD: ver la sección siguiente.
 
 ## Habilitar el modo SharePoint (una vez, TI)
 
@@ -47,7 +55,7 @@ Sin este registro la app funciona igual en modo carpeta local.
 | [fuentes.js](fuentes.js) | Lectura de carpeta local y de SharePoint (MSAL + Graph) |
 | [parsers.js](parsers.js) | Lectores por proveedor (PDF vía pdf.js, XLSX vía SheetJS) y deduplicación |
 | [reporte.js](reporte.js) | Pivot país × mes, tarjetas, export CSV |
-| [app.js](app.js) | Orquestación, filtros, panel de parámetros, modo demo |
+| [app.js](app.js) | Orquestación, filtros, panel de parámetros, mantenedor |
 
 ## Limitaciones conocidas
 

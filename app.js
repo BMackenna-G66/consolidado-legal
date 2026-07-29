@@ -5,7 +5,6 @@ import { procesarArchivo, deduplicar, aplicarBaseHistorica } from './parsers.js'
 import { leerCarpetaLocal, leerSharePoint, graphDisponible, soportaFSA, elegirCarpetaFSA, leerCarpetaRecordada, carpetaGuardada } from './fuentes.js';
 import { construirPivot, renderPivot, renderResumenTarjetas, exportarCSV } from './reporte.js';
 import { clasificar, overrides, setOverride, CONCEPTOS, clasificarConIA, apiKeyGemini, setApiKeyGemini, normalizaCat } from './clasificador.js';
-import { resultadosDemo } from './demo.js';
 
 window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
@@ -223,33 +222,3 @@ function montarPanelParams(params) {
     });
   });
 }
-
-// ---------- modo demo ----------
-// Con carpeta muestras/ presente (desarrollo local) procesa esos archivos reales;
-// si no existe (versión publicada), muestra el reporte con datos ficticios.
-
-function demoSintetica() {
-  resultados = resultadosDemo();
-  $id('banner-demo').hidden = false;
-  finalizarRender(paramsActuales());
-}
-
-async function cargarDemo() {
-  try {
-    progreso('Cargando muestras de prueba…');
-    const resp = await fetch('muestras/manifest.json');
-    if (!resp.ok) throw new Error('sin muestras');
-    const manifest = await resp.json();
-    archivosCrudos = [];
-    for (const m of manifest) {
-      const buf = await (await fetch('muestras/' + encodeURIComponent(m.archivo))).arrayBuffer();
-      archivosCrudos.push({ nombre: m.archivo, ruta: m.ruta, arrayBuffer: buf });
-    }
-    await procesarYRender();
-  } catch {
-    demoSintetica();
-  }
-}
-
-$id('btn-demo').addEventListener('click', cargarDemo);
-if (new URLSearchParams(location.search).has('demo')) cargarDemo();

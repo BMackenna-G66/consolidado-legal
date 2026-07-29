@@ -30,10 +30,6 @@
   .opcion h3 { margin: 0 0 8px; font-size: 15px; color: var(--navy); }
   .opcion p { font-size: 12.5px; color: #64748b; margin: 0 0 16px; line-height: 1.5; }
   #progreso { margin-top: 26px; font-size: 13px; color: var(--azul); min-height: 20px; }
-  .enlace-demo { margin-top: 22px; font-size: 13px; }
-  .enlace-demo a { color: var(--azul); text-decoration: none; font-weight: 500; }
-  .enlace-demo a:hover { text-decoration: underline; }
-  #banner-demo { background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; border-radius: 10px; padding: 10px 16px; font-size: 13px; margin-bottom: 16px; }
   /* Tarjetas resumen */
   #tarjetas { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 22px; }
   .tarjeta { background: #fff; border: 1px solid var(--borde); border-radius: 12px; padding: 14px 20px; min-width: 180px; }
@@ -123,12 +119,10 @@
         <button class="boton" id="btn-sharepoint">Conectar con Microsoft</button>
       </div>
     </div>
-    <p class="enlace-demo"><a href="#" id="btn-demo">Ver una demostración con datos ficticios →</a></p>
     <div id="progreso"></div>
   </section>
 
   <section id="vista-reporte">
-    <div id="banner-demo" hidden>🎬 Estás viendo <b>datos ficticios de demostración</b>. Usa "↺ Nueva carga" para generar el reporte con datos reales (carpeta local o SharePoint).</div>
     <div id="panel-params">
       <h3>Parámetros de conversión</h3>
       <div class="params-grid" id="params-grid"></div>
