@@ -5,6 +5,7 @@ import { procesarArchivo, deduplicar, aplicarBaseHistorica } from './parsers.js'
 import { leerCarpetaLocal, leerSharePoint, graphDisponible } from './fuentes.js';
 import { construirPivot, renderPivot, renderResumenTarjetas, exportarCSV } from './reporte.js';
 import { clasificar, overrides, setOverride, CONCEPTOS, clasificarConIA, apiKeyGemini, setApiKeyGemini, normalizaCat } from './clasificador.js';
+import { resultadosDemo } from './demo.js';
 
 window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
@@ -64,6 +65,10 @@ async function procesarYRender() {
   for (const a of archivosCrudos) resultados.push(await procesarArchivo(a, params));
   deduplicar(resultados);
   aplicarBaseHistorica(resultados);
+  finalizarRender(params);
+}
+
+function finalizarRender(params) {
   progreso('');
   $id('portada').style.display = 'none';
   $id('vista-reporte').style.display = 'block';
@@ -192,19 +197,32 @@ function montarPanelParams(params) {
   });
 }
 
-// ---------- modo prueba (?demo): carga muestras servidas junto a la app ----------
+// ---------- modo demo ----------
+// Con carpeta muestras/ presente (desarrollo local) procesa esos archivos reales;
+// si no existe (versión publicada), muestra el reporte con datos ficticios.
 
-if (new URLSearchParams(location.search).has('demo')) {
-  (async () => {
-    try {
-      progreso('Cargando muestras de prueba…');
-      const manifest = await (await fetch('muestras/manifest.json')).json();
-      archivosCrudos = [];
-      for (const m of manifest) {
-        const buf = await (await fetch('muestras/' + encodeURIComponent(m.archivo))).arrayBuffer();
-        archivosCrudos.push({ nombre: m.archivo, ruta: m.ruta, arrayBuffer: buf });
-      }
-      await procesarYRender();
-    } catch (e) { progreso('⚠ demo: ' + (e.message || e)); }
-  })();
+function demoSintetica() {
+  resultados = resultadosDemo();
+  $id('banner-demo').hidden = false;
+  finalizarRender(paramsActuales());
 }
+
+async function cargarDemo() {
+  try {
+    progreso('Cargando muestras de prueba…');
+    const resp = await fetch('muestras/manifest.json');
+    if (!resp.ok) throw new Error('sin muestras');
+    const manifest = await resp.json();
+    archivosCrudos = [];
+    for (const m of manifest) {
+      const buf = await (await fetch('muestras/' + encodeURIComponent(m.archivo))).arrayBuffer();
+      archivosCrudos.push({ nombre: m.archivo, ruta: m.ruta, arrayBuffer: buf });
+    }
+    await procesarYRender();
+  } catch {
+    demoSintetica();
+  }
+}
+
+$id('btn-demo').addEventListener('click', cargarDemo);
+if (new URLSearchParams(location.search).has('demo')) cargarDemo();
