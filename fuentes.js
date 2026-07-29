@@ -20,6 +20,75 @@ export async function leerCarpetaLocal(fileList, onProgreso) {
   return archivos;
 }
 
+// ---------- Carpeta local con memoria (File System Access API) ----------
+// Chrome/Edge permiten guardar el "handle" de la carpeta elegida: la primera vez
+// se selecciona, y en las visitas siguientes basta un clic en "Actualizar".
+
+const DB = 'consolidado-legal';
+
+function idb() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('handles');
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+}
+
+async function guardarHandle(handle) {
+  const db = await idb();
+  await new Promise((res, rej) => {
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(handle, 'carpeta');
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+}
+
+export async function carpetaGuardada() {
+  try {
+    const db = await idb();
+    return await new Promise((res) => {
+      const tx = db.transaction('handles', 'readonly');
+      const rq = tx.objectStore('handles').get('carpeta');
+      rq.onsuccess = () => res(rq.result || null);
+      rq.onerror = () => res(null);
+    });
+  } catch { return null; }
+}
+
+export function soportaFSA() { return typeof window.showDirectoryPicker === 'function'; }
+
+async function leerDirectorio(dir, ruta, archivos, onProgreso) {
+  for await (const [nombre, handle] of dir.entries()) {
+    if (handle.kind === 'directory') {
+      await leerDirectorio(handle, `${ruta}/${nombre}`, archivos, onProgreso);
+    } else if (EXTENSIONES.test(nombre) && !nombre.startsWith('~$')) {
+      onProgreso?.(`Leyendo ${nombre}…`);
+      const f = await handle.getFile();
+      archivos.push({ nombre, ruta: `${ruta}/${nombre}`, arrayBuffer: await f.arrayBuffer() });
+    }
+  }
+}
+
+export async function elegirCarpetaFSA(onProgreso) {
+  const dir = await window.showDirectoryPicker({ id: 'consolidado-legal', mode: 'read' });
+  await guardarHandle(dir).catch(() => {});
+  const archivos = [];
+  await leerDirectorio(dir, '', archivos, onProgreso);
+  return { archivos, nombre: dir.name };
+}
+
+export async function leerCarpetaRecordada(onProgreso) {
+  const dir = await carpetaGuardada();
+  if (!dir) throw new Error('No hay carpeta guardada');
+  if ((await dir.queryPermission({ mode: 'read' })) !== 'granted') {
+    if ((await dir.requestPermission({ mode: 'read' })) !== 'granted') throw new Error('Permiso de lectura denegado');
+  }
+  const archivos = [];
+  await leerDirectorio(dir, '', archivos, onProgreso);
+  return { archivos, nombre: dir.name };
+}
+
 // ---------- SharePoint vía Microsoft Graph ----------
 
 let msalApp = null;

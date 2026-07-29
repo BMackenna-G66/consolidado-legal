@@ -2,7 +2,7 @@
 
 import { DEFAULT_PARAMS, MESES } from './config.js';
 import { procesarArchivo, deduplicar, aplicarBaseHistorica } from './parsers.js';
-import { leerCarpetaLocal, leerSharePoint, graphDisponible } from './fuentes.js';
+import { leerCarpetaLocal, leerSharePoint, graphDisponible, soportaFSA, elegirCarpetaFSA, leerCarpetaRecordada, carpetaGuardada } from './fuentes.js';
 import { construirPivot, renderPivot, renderResumenTarjetas, exportarCSV } from './reporte.js';
 import { clasificar, overrides, setOverride, CONCEPTOS, clasificarConIA, apiKeyGemini, setApiKeyGemini, normalizaCat } from './clasificador.js';
 import { resultadosDemo } from './demo.js';
@@ -22,13 +22,40 @@ function paramsActuales() {
 
 // ---------- carga ----------
 
-$id('btn-local').addEventListener('click', () => $id('input-carpeta').click());
+$id('btn-local').addEventListener('click', async () => {
+  if (!soportaFSA()) { $id('input-carpeta').click(); return; }
+  try {
+    progreso('Leyendo carpeta…');
+    const { archivos } = await elegirCarpetaFSA(progreso);
+    archivosCrudos = archivos;
+    await procesarYRender();
+  } catch (e) {
+    progreso(e.name === 'AbortError' ? '' : '⚠ ' + (e.message || e));
+  }
+});
 $id('input-carpeta').addEventListener('change', async e => {
   if (!e.target.files.length) return;
   progreso('Leyendo carpeta…');
   archivosCrudos = await leerCarpetaLocal(e.target.files, progreso);
   await procesarYRender();
 });
+
+// Si hay una carpeta recordada de una visita anterior, ofrecer actualización en un clic
+(async () => {
+  const dir = await carpetaGuardada();
+  if (!dir) return;
+  const btn = $id('btn-actualizar');
+  btn.hidden = false;
+  btn.textContent = `↻ Actualizar desde "${dir.name}"`;
+  btn.addEventListener('click', async () => {
+    try {
+      progreso('Releyendo carpeta…');
+      const { archivos } = await leerCarpetaRecordada(progreso);
+      archivosCrudos = archivos;
+      await procesarYRender();
+    } catch (e) { progreso('⚠ ' + (e.message || e)); }
+  });
+})();
 
 $id('btn-sharepoint').addEventListener('click', async () => {
   if (!graphDisponible()) {
