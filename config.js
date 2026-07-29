@@ -5,8 +5,9 @@ export const AZURE = {
   // Completar tras registrar la app en Azure AD (ver README.md). Vacío ⇒ solo modo carpeta local.
   clientId: '',
   tenantId: 'global66.onmicrosoft.com',
-  // Enlace compartido de la carpeta raíz en SharePoint:
-  shareUrl: 'https://global66-my.sharepoint.com/:f:/g/personal/compliance4_global66_onmicrosoft_com/IgBVjhlzYfeBQpXWsxYcaDQJAajHV2IQt6MVbpahvsCtajo',
+  // Enlace compartido de la carpeta raíz en SharePoint. Se deja vacío en el código
+  // (el repo es público): la app lo pide al conectar y lo guarda en el navegador.
+  shareUrl: '',
 };
 
 // Parámetros de conversión editables en la UI; estos son los valores por defecto.

@@ -63,10 +63,21 @@ async function gGET(token, url) {
   return r.json();
 }
 
+function urlCarpeta() {
+  let url = AZURE.shareUrl || localStorage.getItem('consolidado-share-url') || '';
+  if (!url) {
+    url = (prompt('Pega el enlace compartido de la carpeta "Consolidado Cobros - Pagos [Compliance]" en SharePoint:') || '').trim();
+    if (url) localStorage.setItem('consolidado-share-url', url);
+  }
+  if (!url) throw new Error('Falta el enlace de la carpeta de SharePoint');
+  return url;
+}
+
 export async function leerSharePoint(onProgreso) {
+  const carpeta = urlCarpeta();
   const token = await tokenGraph();
   onProgreso?.('Resolviendo carpeta compartida…');
-  const raiz = await gGET(token, `https://graph.microsoft.com/v1.0/shares/${shareId(AZURE.shareUrl)}/driveItem`);
+  const raiz = await gGET(token, `https://graph.microsoft.com/v1.0/shares/${shareId(carpeta)}/driveItem`);
   const driveId = raiz.parentReference.driveId;
   const archivos = [];
 
