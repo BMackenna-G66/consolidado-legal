@@ -19,17 +19,18 @@ Todo el procesamiento ocurre en el navegador; ningún documento sale hacia servi
 
 ## Ejecutar (uso diario)
 
-**Doble clic en `Abrir Consolidado Legal.command`** — levanta el servidor local y abre el navegador. La primera vez: *Elegir carpeta…* y seleccionar la carpeta de SharePoint sincronizada con OneDrive. Desde ahí en adelante la app la recuerda: aparece el botón **↻ Actualizar desde "[carpeta]"** y con un clic relee los archivos y regenera el reporte con las cifras al día.
+**Doble clic en `Abrir Consolidado Legal.command`.** Eso hace todo:
+
+1. Copia los archivos desde la carpeta de SharePoint sincronizada con OneDrive (`~/Library/CloudStorage/OneDrive-Global81SPA/Consolidado Cobros - Pagos [Compliance]`) a `datos/` y genera su manifiesto.
+2. Levanta el servidor local (`servidor.py`, sin caché).
+3. Abre el navegador **con el reporte ya generado** — sin elegir carpetas ni hacer clics.
+
+Para ver las cifras actualizadas después de que alguien suba documentos nuevos: doble clic otra vez.
 
 > En macOS, la primera vez puede pedir confirmación por ser un archivo descargado: clic derecho → Abrir.
+> Si el navegador mostrara datos viejos, recarga con Cmd+Shift+R.
 
-Equivalente por terminal, si prefieres:
-
-```bash
-cd consolidado-legal && python3 -m http.server 4173
-```
-
-Requisito para el botón que recuerda la carpeta: Chrome o Edge (File System Access API). En Safari/Firefox funciona igual, pero hay que elegir la carpeta cada vez.
+Requisito: la carpeta de SharePoint debe estar sincronizada con OneDrive (botón *Sincronizar* en SharePoint). Si no lo está, la app abre en la portada y permite elegir cualquier carpeta a mano; en Chrome/Edge la recuerda para las siguientes veces.
 
 ### Por qué no está publicado en una URL
 

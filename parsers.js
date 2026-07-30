@@ -70,7 +70,7 @@ export async function parseMoragaBH(buf, ruta, params, archivo) {
   const zona = texto.match(/Total\s+Honorarios[\s\S]{0,200}/i);
   let nums = zona ? [...new Set(numerosCLP(zona[0]))].sort((a, b) => b - a) : [];
   if (nums.length < 2) nums = [...new Set(numerosCLP(texto))].sort((a, b) => b - a);
-  if (!nums.length) return { registros: [], estado: 'error', nota: 'PDF sin montos legibles (¿escaneado?)' };
+  if (!nums.length) return { registros: [], estado: 'error', nota: 'PDF escaneado sin texto — registrar a mano o re-subir el PDF electrónico' };
   const bruto = nums[0];
   const retencion = nums.find(n => n >= bruto * 0.10 && n <= bruto * 0.17);
   const neto = retencion ? (nums.find(n => Math.abs(n - (bruto - retencion)) < 2) ?? bruto - retencion) : bruto;
@@ -100,9 +100,13 @@ export async function parseMoragaNCCL(buf, ruta, params, archivo) {
     if (todos.length) uf = Math.max(...todos);
   }
   if (!uf) return { registros: [], estado: 'error', nota: 'No se encontró monto UF en la nota de cobro' };
-  // La carpeta del mes manda: las descripciones internas traen fechas de otros meses
+  // La carpeta del mes manda: las descripciones internas traen fechas de otros meses.
+  // El año, si la ruta no lo trae, sale del período de facturación del documento.
   const rf = fechaDeRuta(ruta);
-  const f = rf.mes && rf.anio ? { dia: 1, mes: rf.mes, anio: rf.anio, origen: 'ruta' } : fechaDoc(texto, ruta, 'hasta el');
+  const anioTexto = (texto.match(/hasta el[^\n]{0,40}?(20\d{2})/i) || texto.match(/(20\d{2})/) || [])[1];
+  const f = rf.mes
+    ? { dia: 1, mes: rf.mes, anio: rf.anio || (anioTexto ? +anioTexto : null), origen: 'ruta' }
+    : fechaDoc(texto, ruta, 'hasta el');
   const clp = Math.round(uf * params.UF_CLP);
   return {
     registros: [{
@@ -122,7 +126,7 @@ export async function parseFacturaExenta(buf, ruta, params, archivo, proveedor) 
   const zonaTotal = texto.match(/Monto\s+Total[\s\S]{0,80}/i);
   let nums = zonaTotal ? numerosCLP(zonaTotal[0]) : [];
   if (!nums.length) nums = numerosCLP(texto);
-  if (!nums.length) return { registros: [], estado: 'error', nota: 'PDF sin montos legibles (¿escaneado?)' };
+  if (!nums.length) return { registros: [], estado: 'error', nota: 'PDF escaneado sin texto — registrar a mano o re-subir el PDF electrónico' };
   const monto = Math.max(...nums);
   const f = fechaDoc(texto, ruta, 'Fecha\\s*Emis');
   const mDesc = texto.match(/(Honorarios?[^\n]{0,90}|Asesor[ií]a[^\n]{0,90})/i);
@@ -160,8 +164,67 @@ export async function parseSensusNC(buf, ruta, params, archivo) {
 
 // ---------- parsers XLSX ----------
 
-// Minuta Andes Latam: hojas "1- ok" (horas USD) y "2 - ok"/"4 - ok" (gastos PEN).
+// Minuta Andes Latam. Fuente principal: el bloque "Resumen cobro" de la hoja
+// "1 GLOBAL 66" → "Total cobro" en USD (ya incluye IGV), que es el monto facturado.
+// Sirve para los dos formatos de minuta (con y sin hojas "ok").
 export function parseAndesLatam(buf, ruta, params, archivo) {
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+  const hoja = wb.SheetNames.find(n => /global\s*66/i.test(n)) || wb.SheetNames[0];
+  if (hoja) {
+    const filas = filasDeHoja(wb.Sheets[hoja]);
+    const valorTrasEtiqueta = (fila, i) => {
+      for (let j = i + 1; j < fila.length; j++) {
+        const v = numeroUS(fila[j]);
+        if (isFinite(v) && v > 0) return v;
+      }
+      return NaN;
+    };
+    const fechaTrasEtiqueta = (fila, i) => {
+      for (let j = i + 1; j < fila.length; j++) {
+        const c = fila[j];
+        if (c instanceof Date && !isNaN(c)) return { dia: c.getDate(), mes: c.getMonth() + 1, anio: c.getFullYear() };
+        const m = String(c ?? '').match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+        if (m) return { dia: +m[1], mes: +m[2], anio: +m[3] < 100 ? 2000 + +m[3] : +m[3] };
+      }
+      return null;
+    };
+    let total = NaN, hasta = null, desde = null, factura = '';
+    for (const fila of filas) {
+      if (!fila) continue;
+      for (let i = 0; i < fila.length; i++) {
+        const c = String(fila[i] ?? '');
+        if (/total\s*cobro/i.test(c)) total = valorTrasEtiqueta(fila, i);
+        else if (/fecha\s*hasta/i.test(c)) hasta = fechaTrasEtiqueta(fila, i);
+        else if (/fecha\s*desde/i.test(c)) desde = fechaTrasEtiqueta(fila, i);
+        else if (/factura\s*n/i.test(c)) {
+          const v = fila.slice(i + 1).find(x => x != null && String(x).trim());
+          if (v) factura = String(v).trim();
+        }
+      }
+    }
+    if (isFinite(total) && total > 0) {
+      const rf = fechaDeRuta(ruta);
+      const f = hasta || desde;
+      const mes = (f && f.mes) || rf.mes || null;
+      const anio = (f && f.anio) || rf.anio || null;
+      const clp = Math.round(total * params.USD_CLP);
+      return {
+        registros: [{
+          dia: (f && f.dia) || 1, mes, anio, pais: 'Perú', proveedor: 'Andes Latam',
+          categoria: 'Asesoría legal Andes Latam', concepto: 'Honorarios', moneda: 'USD',
+          montoOrigen: total, clp, archivo,
+          detalle: `Minuta de liquidación${factura ? ' ' + factura : ''} (honorarios + gastos + IGV)`,
+        }],
+        estado: 'supuesto',
+        nota: `Total cobro USD ${total.toFixed(2)} × ${params.USD_CLP} = ${fmt(clp)} (incluye IGV)`,
+      };
+    }
+  }
+  return parseAndesPorLineas(buf, ruta, params, archivo);
+}
+
+// Respaldo: suma línea a línea de las hojas "ok" (formato antiguo sin resumen de cobro).
+function parseAndesPorLineas(buf, ruta, params, archivo) {
   const wb = XLSX.read(buf, { type: 'array' });
   const registros = [];
   const notas = [];
@@ -332,6 +395,15 @@ export async function procesarArchivo({ nombre, ruta, arrayBuffer }, params) {
   if (/anulad/i.test(nombre)) return { ...base, estado: 'omitido', nota: 'Documento ANULADO — excluido', registros: [] };
   if (/consolidado\s+paises\.xlsx$/i.test(nombre)) return { ...base, ...parseBaseResumen(arrayBuffer, ruta, params, nombre) };
   const prov = proveedorDeRuta(ruta);
+  // Nota de cobro en UF: es de Moraga (Chile) aunque esté archivada en otra carpeta.
+  if (/\.pdf$/i.test(nombre) && /^ncc/i.test(nombre)) {
+    const r = await parseMoragaNCCL(arrayBuffer, ruta, params, nombre);
+    if (r.registros.length) {
+      const fuera = !prov || prov.id !== 'moraga';
+      if (fuera) r.nota += ' · ⚠ Documento de Moraga (Chile) archivado fuera de su carpeta';
+      return { ...base, ...r, proveedor: 'Alvaro Moraga', pais: 'Chile' };
+    }
+  }
   if (!prov) return { ...base, estado: 'error', nota: 'Carpeta no asociada a ningún proveedor', registros: [] };
   const ext = nombre.split('.').pop().toLowerCase();
   try {
@@ -340,10 +412,10 @@ export async function procesarArchivo({ nombre, ruta, arrayBuffer }, params) {
       r = /^bh/i.test(nombre) ? await parseMoragaBH(arrayBuffer, ruta, params, nombre)
         : /nccl?/i.test(nombre) ? await parseMoragaNCCL(arrayBuffer, ruta, params, nombre)
         : await parseFacturaExenta(arrayBuffer, ruta, params, nombre, prov);
-    } else if (prov.id === 'sensus' && ext === 'pdf') {
+    } else if (prov.id === 'sensus' && ext === 'pdf' && /^nc/i.test(nombre)) {
       r = await parseSensusNC(arrayBuffer, ruta, params, nombre);
     } else if (prov.id === 'sensus') {
-      return { ...base, estado: 'omitido', nota: 'Listado de detalle — el monto lo aporta la nota de cobro (NC) del mes', registros: [] };
+      return { ...base, estado: 'omitido', nota: 'Documento de respaldo — el monto lo aporta la nota de cobro (NC) del mes', registros: [] };
     } else if ((prov.id === 'dentons' || prov.id === 'aninat') && ext === 'pdf') {
       r = await parseFacturaExenta(arrayBuffer, ruta, params, nombre, prov);
     } else if (prov.id === 'andes' && ext === 'xlsx') {

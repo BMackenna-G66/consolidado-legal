@@ -222,3 +222,27 @@ function montarPanelParams(params) {
     });
   });
 }
+
+// ---------- carga automática de la carpeta de datos local ----------
+// Si existe datos/manifest.json (copia de la carpeta de SharePoint sincronizada),
+// el reporte se genera solo al abrir la app, sin ningún clic.
+
+async function cargarDatosLocales() {
+  const resp = await fetch('datos/manifest.json', { cache: 'no-store' });
+  if (!resp.ok) throw new Error('sin carpeta de datos');
+  const manifest = await resp.json();
+  archivosCrudos = [];
+  let i = 0;
+  for (const m of manifest) {
+    progreso(`Leyendo ${++i}/${manifest.length}: ${m.archivo.split('/').pop()}`);
+    const r = await fetch('datos/' + m.archivo.split('/').map(encodeURIComponent).join('/'));
+    if (!r.ok) continue;
+    archivosCrudos.push({ nombre: m.archivo.split('/').pop(), ruta: m.ruta, arrayBuffer: await r.arrayBuffer() });
+  }
+  await procesarYRender();
+}
+
+(async () => {
+  try { await cargarDatosLocales(); }
+  catch { /* sin carpeta datos/: queda la portada para elegir carpeta manualmente */ }
+})();
