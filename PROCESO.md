@@ -60,7 +60,8 @@ Cualquier `.xlsx` con columnas reconocibles (Fecha / Descripción / Categoría /
 
 ## 6. Convenciones que evitan problemas
 
-- **No renombrar las carpetas de proveedor**: el nombre de la carpeta determina el país y el lector que se aplica.
+- **No renombrar las carpetas de proveedor existentes**: el nombre de la carpeta determina el país y el lector que se aplica.
+- **Proveedor nuevo**: basta crear su carpeta en la raíz y subir los documentos — se incorpora al reporte automáticamente. Nombrar la carpeta terminando en el país (ej. `Estudio Pérez - Chile`) para que se asigne bien; si el país no aparece en el nombre, el reporte lo muestra como "Sin país" hasta corregirlo. Los proveedores nuevos usan los lectores genéricos (factura PDF con "Monto Total", o planilla con columnas Fecha + Monto); si su formato es distinto, se agrega un lector específico.
 - **Carpetas de mes**: usar el formato existente `N- Mes` (ej. `3- Marzo`). El número manda; el nombre es informativo.
 - **PDFs con texto**: subir el PDF electrónico original (SII, nota de cobro generada), no un escaneo/foto. Un PDF escaneado no se puede leer automáticamente y quedará en ❌.
 - **Anulaciones**: si un documento se anula, agregar "ANULADA" al nombre del archivo; la app lo excluye del consolidado.

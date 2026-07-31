@@ -58,6 +58,12 @@ Sin este registro la app funciona igual en modo carpeta local.
 | [reporte.js](reporte.js) | Pivot país × mes, tarjetas, export CSV |
 | [app.js](app.js) | Orquestación, filtros, panel de parámetros, mantenedor |
 
+## Agregar un proveedor nuevo
+
+No requiere tocar código: crear la carpeta en la raíz de SharePoint y subir los documentos. La app detecta la carpeta nueva, deduce el país del nombre (terminar en `- Chile`, `- Colombia`, `- Perú` o `- Argentina`) y aplica los lectores genéricos, marcando los movimientos con "🆕 Proveedor nuevo detectado" en el panel de archivos.
+
+Solo hace falta editar [config.js](config.js) (lista `PROVEEDORES`) si el proveedor necesita un lector específico porque su formato no es una factura PDF con "Monto Total" ni una planilla con columnas Fecha + Monto.
+
 ## Limitaciones conocidas
 
 - Un PDF **escaneado sin capa de texto** no se puede leer: queda marcado ❌ en el panel de archivos y debe registrarse a mano (o re-subir el PDF electrónico).

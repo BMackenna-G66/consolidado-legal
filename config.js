@@ -40,8 +40,25 @@ export const PROVEEDORES = [
   { id: 'argentina', pais: 'Argentina', nombre: 'Gastos Jurídicos',  match: /argentina/i },
 ];
 
+const PAIS_POR_NOMBRE = [
+  [/chile|santiago|\bcl\b/i, 'Chile'],
+  [/colombia|bogot[áa]|\bco\b/i, 'Colombia'],
+  [/per[úu]|lima|\bpe\b/i, 'Perú'],
+  [/argentina|buenos aires|\bar\b/i, 'Argentina'],
+];
+
+// Devuelve el proveedor configurado o, si la carpeta es nueva, uno deducido de
+// su nombre. Así un proveedor recién agregado entra al reporte sin tocar código:
+// el país sale del nombre de la carpeta y se usan los lectores genéricos.
 export function proveedorDeRuta(ruta) {
-  return PROVEEDORES.find(p => p.match.test(ruta)) || null;
+  const conocido = PROVEEDORES.find(p => p.match.test(ruta));
+  if (conocido) return conocido;
+  const carpeta = String(ruta).replace(/^\/+/, '').split('/')[0];
+  if (!carpeta || carpeta.includes('.')) return null; // archivo suelto en la raíz
+  const pais = (PAIS_POR_NOMBRE.find(([re]) => re.test(carpeta)) || [])[1] || null;
+  // "Estudio Pérez - Chile" → nombre "Estudio Pérez"
+  const nombre = carpeta.replace(/\s*[-–]\s*(chile|colombia|per[úu]|argentina)\s*$/i, '').trim() || carpeta;
+  return { id: 'nuevo', pais: pais || 'Sin país', nombre, nuevo: true, paisDeducido: Boolean(pais) };
 }
 
 // Deduce mes/año desde la ruta ("/Mensual/3- Marzo/", "/2025/", "Sensus Legis/Julio/")

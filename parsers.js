@@ -404,8 +404,12 @@ export async function procesarArchivo({ nombre, ruta, arrayBuffer }, params) {
       return { ...base, ...r, proveedor: 'Alvaro Moraga', pais: 'Chile' };
     }
   }
-  if (!prov) return { ...base, estado: 'error', nota: 'Carpeta no asociada a ningún proveedor', registros: [] };
+  if (!prov) return { ...base, estado: 'error', nota: 'Archivo fuera de una carpeta de proveedor', registros: [] };
   const ext = nombre.split('.').pop().toLowerCase();
+  // Proveedor nuevo: se procesa igual con los lectores genéricos y se avisa.
+  const avisoNuevo = prov.nuevo
+    ? ` · 🆕 Proveedor nuevo detectado ("${prov.nombre}")` + (prov.paisDeducido ? `, país deducido: ${prov.pais}` : ' — agrega el país al nombre de la carpeta (ej. "Estudio X - Chile")')
+    : '';
   try {
     let r;
     if (prov.id === 'moraga' && ext === 'pdf') {
@@ -427,9 +431,13 @@ export async function procesarArchivo({ nombre, ruta, arrayBuffer }, params) {
     } else {
       return { ...base, estado: 'omitido', nota: `Extensión .${ext} no soportada`, registros: [] };
     }
+    if (avisoNuevo) {
+      r.nota = (r.nota || '') + avisoNuevo;
+      if (r.estado === 'ok') r.estado = 'supuesto';
+    }
     return { ...base, ...r, proveedor: prov.nombre, pais: prov.pais };
   } catch (e) {
-    return { ...base, estado: 'error', nota: 'Error al leer: ' + (e.message || e), registros: [] };
+    return { ...base, estado: 'error', nota: 'Error al leer: ' + (e.message || e) + avisoNuevo, registros: [] };
   }
 }
 
