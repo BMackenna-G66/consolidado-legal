@@ -10,10 +10,22 @@ PORT=4173
 if [ -d "$SP" ]; then
   echo "Sincronizando archivos desde SharePoint/OneDrive…"
   mkdir -p datos
-  rsync -a --delete \
+  CAMBIOS=$(rsync -ai --delete \
     --include="*/" --include="*.pdf" --include="*.xlsx" --include="*.xlsm" \
-    --exclude="*" --prune-empty-dirs "$SP/" datos/
+    --exclude="*" --prune-empty-dirs "$SP/" datos/ | grep -E '^(>f|\*deleting)' )
   find datos -name "~\$*" -delete 2>/dev/null
+
+  if [ -z "$CAMBIOS" ]; then
+    echo ""
+    echo "⚠️  SIN CAMBIOS: no llegó ningún archivo nuevo ni modificado."
+    echo "    Si esperabas cargas nuevas, revisa en OneDrive (icono de la nube en la"
+    echo "    barra de menú) que la sincronización esté al día y no en pausa."
+  else
+    echo ""
+    echo "Cambios detectados:"
+    echo "$CAMBIOS" | sed -e 's/^>f[^ ]* /  + /' -e 's/^\*deleting  */  - /'
+  fi
+  echo ""
 
   python3 - <<'PY'
 import json, os
