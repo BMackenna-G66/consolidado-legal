@@ -70,7 +70,13 @@ $id('btn-sharepoint').addEventListener('click', async () => {
   }
 });
 
-$id('btn-recargar').addEventListener('click', () => location.reload());
+// Vuelve a la portada para elegir otra carpeta (sin recaer en la carga automática)
+$id('btn-recargar').addEventListener('click', () => {
+  $id('vista-reporte').style.display = 'none';
+  $id('portada').style.display = 'block';
+  for (const b of ['btn-params', 'btn-mantenedor', 'btn-csv', 'btn-recargar']) $id(b).hidden = true;
+  progreso('');
+});
 $id('btn-csv').addEventListener('click', () => exportarCSV(registrosFiltrados()));
 $id('btn-params').addEventListener('click', () => $id('panel-params').classList.toggle('visible'));
 $id('f-gastos').addEventListener('change', renderTodo);
