@@ -51,9 +51,11 @@ const PAIS_POR_NOMBRE = [
 // su nombre. Así un proveedor recién agregado entra al reporte sin tocar código:
 // el país sale del nombre de la carpeta y se usan los lectores genéricos.
 export function proveedorDeRuta(ruta) {
-  const conocido = PROVEEDORES.find(p => p.match.test(ruta));
-  if (conocido) return conocido;
+  // El proveedor lo define la carpeta raíz, no cualquier coincidencia en la ruta:
+  // "Andes Latam - Perú/2026/6. Junio/Dentons perú/…" es de Andes Latam, no de Dentons.
   const carpeta = String(ruta).replace(/^\/+/, '').split('/')[0];
+  const conocido = PROVEEDORES.find(p => p.match.test(carpeta));
+  if (conocido) return conocido;
   if (!carpeta || carpeta.includes('.')) return null; // archivo suelto en la raíz
   const pais = (PAIS_POR_NOMBRE.find(([re]) => re.test(carpeta)) || [])[1] || null;
   // "Estudio Pérez - Chile" → nombre "Estudio Pérez"
@@ -65,7 +67,8 @@ export function proveedorDeRuta(ruta) {
 // como respaldo cuando el documento no trae fecha parseable.
 export function fechaDeRuta(ruta) {
   let mes = null, anio = null;
-  const mNum = ruta.match(/\/(\d{1,2})-\s*[A-Za-zÁÉÍÓÚáéíóúñ]+\//);
+  // Acepta "3- Marzo", "6. Junio" y variantes
+  const mNum = ruta.match(/\/(\d{1,2})\s*[-.]\s*[A-Za-zÁÉÍÓÚáéíóúñ]+\//);
   if (mNum) mes = parseInt(mNum[1], 10);
   if (!mes) {
     const mNombre = ruta.toLowerCase().match(/\/(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\//);
@@ -100,4 +103,32 @@ export function numeroUS(s) {
   if (typeof s === 'number') return s;
   if (s == null) return NaN;
   return parseFloat(String(s).replace(/[^\d.\-]/g, ''));
+}
+
+// Extrae montos de un texto reconociendo los dos estilos de separadores:
+// "3.034,55" (es) y "3,034.55" / "207.68" (us). Devuelve [{valor, indice}].
+export function montosDelTexto(texto) {
+  const out = [];
+  const re = /\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?/g;
+  let m;
+  while ((m = re.exec(texto))) {
+    const s = m[0];
+    let v = NaN;
+    if (/^\d{1,3}(\.\d{3})+,\d{1,2}$/.test(s)) v = parseFloat(s.replace(/\./g, '').replace(',', '.'));      // 3.034,55
+    else if (/^\d{1,3}(,\d{3})+\.\d{1,2}$/.test(s)) v = parseFloat(s.replace(/,/g, ''));                     // 3,034.55
+    else if (/^\d{1,3}(\.\d{3})+$/.test(s)) v = parseFloat(s.replace(/\./g, ''));                            // 3.567.925
+    else if (/^\d{1,3}(,\d{3})+$/.test(s)) v = parseFloat(s.replace(/,/g, ''));                              // 3,567,925
+    else if (/^\d+,\d{1,2}$/.test(s)) v = parseFloat(s.replace(',', '.'));                                   // 1234,55
+    else if (/^\d+(\.\d{1,2})?$/.test(s)) v = parseFloat(s);                                                 // 207.68 | 200
+    if (isFinite(v) && v > 0) out.push({ valor: v, indice: m.index });
+  }
+  return out;
+}
+
+// Moneda declarada en el documento; si no hay marca, la del país.
+export function monedaDelTexto(texto, paisPorDefecto) {
+  if (/US\$|USD|D[ÓO]LARES/i.test(texto)) return 'USD';
+  if (/\bS\/\b|SOLES/i.test(texto)) return 'PEN';
+  const porPais = { Chile: 'CLP', Colombia: 'COP', 'Perú': 'PEN', Argentina: 'ARS' };
+  return porPais[paisPorDefecto] || 'CLP';
 }

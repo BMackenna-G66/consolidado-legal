@@ -2,7 +2,7 @@
 // { registros: [...], estado: 'ok'|'supuesto'|'error', nota }
 // Registro: { dia, mes, anio, pais, proveedor, categoria, concepto, moneda, montoOrigen, clp, archivo, detalle }
 
-import { fechaDeRuta, parseFechaTexto, numeroCL, numeroUS, proveedorDeRuta } from './config.js';
+import { fechaDeRuta, parseFechaTexto, numeroCL, numeroUS, proveedorDeRuta, montosDelTexto, monedaDelTexto } from './config.js';
 
 const XLSX = window.XLSX;
 const pdfjsLib = window.pdfjsLib;
@@ -159,6 +159,47 @@ export async function parseSensusNC(buf, ruta, params, archivo) {
     }],
     estado: 'supuesto',
     nota: `UF ${uf} × $${fmt(params.UF_CLP)} + IVA ${params.IVA_CL * 100}% = ${fmt(clp)}`,
+  };
+}
+
+// Factura genérica en cualquier moneda (SUNAT Perú, facturas argentinas, etc.).
+// Toma el monto de la línea "Total" (ignorando subtotales) y, si no la encuentra,
+// el mayor del documento. La moneda sale del propio documento.
+export async function parseFacturaGenerica(buf, ruta, params, archivo, proveedor) {
+  const texto = await textoPdf(buf);
+  const montos = montosDelTexto(texto);
+  if (!montos.length) return { registros: [], estado: 'error', nota: 'PDF escaneado sin texto — registrar a mano o re-subir el PDF electrónico' };
+
+  // Preferir los montos que aparecen cerca de un "Total" que no sea subtotal
+  let candidatos = [];
+  const reTotal = /(?<!sub)\bT\s?O\s?T\s?A\s?L\b|Importe\s+total/gi;
+  let mt;
+  while ((mt = reTotal.exec(texto))) {
+    const zona = texto.slice(mt.index, mt.index + 120);
+    if (/valor\s+venta|detracci/i.test(zona)) continue;
+    candidatos.push(...montosDelTexto(zona).map(x => x.valor));
+  }
+  if (!candidatos.length) candidatos = montos.map(x => x.valor);
+  const monto = Math.max(...candidatos);
+
+  const moneda = monedaDelTexto(texto, proveedor.pais);
+  const tasas = { USD: params.USD_CLP, PEN: params.PEN_CLP, COP: params.COP_CLP, ARS: params.ARS_CLP, CLP: 1 };
+  const clp = Math.round(monto * (tasas[moneda] ?? 1));
+
+  const rf = fechaDeRuta(ruta);
+  const f = parseFechaTexto(texto) || (rf.mes ? { dia: 1, mes: rf.mes, anio: rf.anio } : null);
+  const esHonorario = /honorario|fee|asesor/i.test(archivo + ' ' + texto.slice(0, 600));
+  return {
+    registros: [{
+      ...fechaReg(f ? { ...f, origen: 'doc' } : null),
+      pais: proveedor.pais, proveedor: proveedor.nombre,
+      categoria: esHonorario ? 'Honorarios legales' : 'Gastos legales',
+      concepto: esHonorario ? 'Honorarios' : 'Gastos',
+      moneda, montoOrigen: monto, clp, archivo,
+      detalle: archivo.replace(/\.[a-z]+$/i, ''),
+    }],
+    estado: 'supuesto',
+    nota: `${moneda} ${monto.toLocaleString('es-CL')} × ${tasas[moneda] ?? 1} = ${fmt(clp)} — verificar monto y moneda`,
   };
 }
 
@@ -412,6 +453,10 @@ export async function procesarArchivo({ nombre, ruta, arrayBuffer }, params) {
     : '';
   try {
     let r;
+    // Anexos de horas sin montos (HH…, "detalle cobro"): el monto lo aporta la boleta del mes
+    if (ext === 'pdf' && (/^hh\b/i.test(nombre) || /detalle\s+de?\s*cobro/i.test(nombre)) && !/^bh/i.test(nombre)) {
+      return { ...base, estado: 'omitido', nota: 'Anexo de detalle de horas (sin montos) — el cobro lo aporta la boleta o factura del mes', registros: [] };
+    }
     if (prov.id === 'moraga' && ext === 'pdf') {
       r = /^bh/i.test(nombre) ? await parseMoragaBH(arrayBuffer, ruta, params, nombre)
         : /nccl?/i.test(nombre) ? await parseMoragaNCCL(arrayBuffer, ruta, params, nombre)
@@ -427,7 +472,8 @@ export async function procesarArchivo({ nombre, ruta, arrayBuffer }, params) {
     } else if (ext === 'xlsx' || ext === 'xlsm') {
       r = parseTabularGenerico(arrayBuffer, ruta, params, nombre, prov);
     } else if (ext === 'pdf') {
-      r = await parseFacturaExenta(arrayBuffer, ruta, params, nombre, prov);
+      // Facturas en moneda extranjera (SUNAT Perú, facturas argentinas) o formato desconocido
+      r = await parseFacturaGenerica(arrayBuffer, ruta, params, nombre, prov);
     } else {
       return { ...base, estado: 'omitido', nota: `Extensión .${ext} no soportada`, registros: [] };
     }
