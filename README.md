@@ -44,7 +44,9 @@ La versión con URL compartible (sin datos publicados) llega con el registro de 
    - Supported account types: *Single tenant*.
    - Platform: **Single-page application (SPA)** con la URL donde se sirva la app como Redirect URI (ej. `https://<org>.github.io/<repo>/consolidado-legal/` y `http://localhost:4173` para desarrollo).
 2. API permissions → Microsoft Graph → **Delegated** → `Files.Read.All` (+ Grant admin consent si la política lo exige).
-3. Copiar el **Application (client) ID** en `config.js` → `AZURE.clientId`.
+3. Copiar el **Application (client) ID**. Se puede pegar directamente en la app (botón *Conectar con Microsoft* lo pide la primera vez y lo guarda en el navegador) o dejarlo fijo en `config.js` → `AZURE.clientId`.
+
+Con eso, *Conectar con Microsoft* abre la ventana oficial de Microsoft, cada persona inicia sesión con su propia cuenta y la app lee SharePoint en vivo, bajo demanda. **La aplicación nunca ve ni almacena contraseñas**: solo recibe un token de acceso temporal emitido por Microsoft.
 
 Sin este registro la app funciona igual en modo carpeta local.
 

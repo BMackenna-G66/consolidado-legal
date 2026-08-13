@@ -93,15 +93,30 @@ export async function leerCarpetaRecordada(onProgreso) {
 
 let msalApp = null;
 
+const CLIENT_ID_KEY = 'consolidado-azure-client-id';
+
+// El Client ID del registro de Azure AD puede venir del código o guardarse en el
+// navegador, para habilitar el modo en línea sin editar archivos.
+export function clientId() {
+  return AZURE.clientId || localStorage.getItem(CLIENT_ID_KEY) || '';
+}
+
+export function setClientId(id) {
+  const limpio = String(id || '').trim();
+  if (limpio) localStorage.setItem(CLIENT_ID_KEY, limpio);
+  else localStorage.removeItem(CLIENT_ID_KEY);
+  msalApp = null; // fuerza recrear el cliente con el nuevo id
+}
+
 export function graphDisponible() {
-  return Boolean(AZURE.clientId);
+  return Boolean(clientId());
 }
 
 async function tokenGraph() {
   if (!msalApp) {
     msalApp = new window.msal.PublicClientApplication({
       auth: {
-        clientId: AZURE.clientId,
+        clientId: clientId(),
         authority: `https://login.microsoftonline.com/${AZURE.tenantId}`,
         redirectUri: window.location.origin + window.location.pathname,
       },

@@ -2,7 +2,7 @@
 
 import { DEFAULT_PARAMS, MESES } from './config.js';
 import { procesarArchivo, deduplicar, aplicarBaseHistorica } from './parsers.js';
-import { leerCarpetaLocal, leerSharePoint, graphDisponible, soportaFSA, elegirCarpetaFSA, leerCarpetaRecordada, carpetaGuardada } from './fuentes.js';
+import { leerCarpetaLocal, leerSharePoint, graphDisponible, soportaFSA, elegirCarpetaFSA, leerCarpetaRecordada, carpetaGuardada, setClientId } from './fuentes.js';
 import { construirPivot, renderPivot, renderResumenTarjetas, exportarCSV } from './reporte.js';
 import { clasificar, overrides, setOverride, CONCEPTOS, clasificarConIA, apiKeyGemini, setApiKeyGemini, normalizaCat } from './clasificador.js';
 
@@ -58,8 +58,14 @@ $id('input-carpeta').addEventListener('change', async e => {
 
 $id('btn-sharepoint').addEventListener('click', async () => {
   if (!graphDisponible()) {
-    progreso('⚠ Falta configurar clientId de Azure AD en config.js (ver README). Mientras tanto usa la opción de carpeta local.');
-    return;
+    const id = prompt(
+      'Modo en línea: pega el "Application (client) ID" del registro de Azure AD.\n\n' +
+      'Es el identificador que entrega TI (ver SOLICITUD-TI.md). No es una contraseña:\n' +
+      'tu sesión de Microsoft se inicia en la ventana oficial de Microsoft y esta app\n' +
+      'nunca ve tus credenciales.'
+    );
+    if (!id || !id.trim()) { progreso('Modo en línea no configurado — puedes seguir usando la carpeta local.'); return; }
+    setClientId(id);
   }
   try {
     progreso('Conectando con Microsoft…');
