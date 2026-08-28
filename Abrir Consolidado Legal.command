@@ -7,9 +7,20 @@ cd "$(dirname "$0")" || exit 1
 SP="$HOME/Library/CloudStorage/OneDrive-Global81SPA/Consolidado Cobros - Pagos [Compliance]"
 PORT=4173
 
-if [ -d "$SP" ]; then
+mkdir -p datos
+N_SP=$(find "$SP" -type f \( -iname "*.pdf" -o -iname "*.xlsx" -o -iname "*.xlsm" \) ! -name "~\$*" 2>/dev/null | wc -l | tr -d ' ')
+N_LOCAL=$(find datos -type f \( -iname "*.pdf" -o -iname "*.xlsx" -o -iname "*.xlsm" \) 2>/dev/null | wc -l | tr -d ' ')
+
+# Protección: si OneDrive está desactualizado (tiene menos archivos que los ya
+# cargados), NO se sincroniza — de lo contrario borraría datos buenos.
+if [ -d "$SP" ] && [ "$N_SP" -lt "$N_LOCAL" ]; then
+  echo ""
+  echo "⚠️  OneDrive está DESACTUALIZADO: tiene $N_SP archivos y el reporte ya carga $N_LOCAL."
+  echo "    Se conservan los $N_LOCAL archivos actuales (no se sincroniza para no perderlos)."
+  echo "    Revisa que OneDrive haya iniciado sesión y terminado de sincronizar."
+  echo ""
+elif [ -d "$SP" ]; then
   echo "Sincronizando archivos desde SharePoint/OneDrive…"
-  mkdir -p datos
   CAMBIOS=$(rsync -ai --delete \
     --include="*/" --include="*.pdf" --include="*.xlsx" --include="*.xlsm" \
     --exclude="*" --prune-empty-dirs "$SP/" datos/ | grep -E '^(>f|\*deleting)' )
@@ -26,8 +37,13 @@ if [ -d "$SP" ]; then
     echo "$CAMBIOS" | sed -e 's/^>f[^ ]* /  + /' -e 's/^\*deleting  */  - /'
   fi
   echo ""
+else
+  echo "AVISO: no encuentro la carpeta sincronizada de OneDrive."
+  echo "Se usarán los archivos que ya estén en datos/."
+fi
 
-  python3 - <<'PY'
+# El manifiesto se regenera siempre, con lo que haya quedado en datos/
+python3 - <<'PY'
 import json, os
 items = []
 for root, _, files in os.walk('datos'):
@@ -40,10 +56,6 @@ items.sort(key=lambda x: (0 if 'Consolidado Paises' in x['archivo'] else 1, x['a
 json.dump(items, open('datos/manifest.json', 'w'), ensure_ascii=False, indent=1)
 print(f'{len(items)} archivos listos.')
 PY
-else
-  echo "AVISO: no encuentro la carpeta sincronizada de OneDrive."
-  echo "Se usarán los archivos que ya estén en datos/."
-fi
 
 if ! lsof -i :$PORT >/dev/null 2>&1; then
   python3 servidor.py $PORT >/dev/null 2>&1 &
