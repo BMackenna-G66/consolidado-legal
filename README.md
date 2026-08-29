@@ -32,11 +32,11 @@ Para ver las cifras actualizadas después de que alguien suba documentos nuevos:
 
 Requisito: la carpeta de SharePoint debe estar sincronizada con OneDrive (botón *Sincronizar* en SharePoint). Si no lo está, la app abre en la portada y permite elegir cualquier carpeta a mano; en Chrome/Edge la recuerda para las siguientes veces.
 
-### Por qué no está publicado en una URL
+### Versión publicada
 
-Este repositorio es **privado** y la app no se publica en GitHub Pages: los datos del consolidado son confidenciales y un sitio estático público los expondría. Cada usuario autorizado ejecuta la app localmente sobre la carpeta de SharePoint a la que ya tiene acceso, y los datos nunca salen de su navegador. La carpeta `muestras/` está en `.gitignore` por la misma razón.
+La aplicación está en **https://bmackenna-g66.github.io/consolidado-legal/**. Es solo el programa: **no contiene ningún dato**. Al abrirla, cada persona elige su carpeta de SharePoint sincronizada (o conecta con Microsoft) y el reporte se arma en su propio navegador. Las carpetas `datos/` y `muestras/` están en `.gitignore`, y el enlace interno de SharePoint no vive en el código — la app lo pide y lo guarda localmente.
 
-La versión con URL compartible (sin datos publicados) llega con el registro de Azure AD: ver la sección siguiente.
+Para usarla sobre la carpeta ya sincronizada de este equipo, sigue siendo más cómodo el lanzador local descrito arriba.
 
 ## Habilitar el modo SharePoint (una vez, TI)
 
@@ -58,7 +58,16 @@ Sin este registro la app funciona igual en modo carpeta local.
 | [fuentes.js](fuentes.js) | Lectura de carpeta local y de SharePoint (MSAL + Graph) |
 | [parsers.js](parsers.js) | Lectores por proveedor (PDF vía pdf.js, XLSX vía SheetJS) y deduplicación |
 | [reporte.js](reporte.js) | Pivot país × mes, tarjetas, export CSV |
-| [app.js](app.js) | Orquestación, filtros, panel de parámetros, mantenedor |
+| [app.js](app.js) | Orquestación, filtros, panel de parámetros, mantenedor, fichas |
+| [manual.js](manual.js) | Fichas de carga manual: almacenamiento, cálculo CLP/USD, export/import |
+
+## Carga manual (ficha)
+
+El botón **➕ Carga manual** abre una ficha para registrar movimientos que no tienen documento en las carpetas, o cuyo PDF está escaneado y no se puede leer. Campos: período, **solicitante**, proveedor, país, tipo de concepto, categoría, **moneda de origen**, monto, **monto en CLP** (calculado con los parámetros, editable) y **equivalente en USD** (derivado).
+
+Cada ficha entra al reporte como una fuente más: suma en el pivot, aparece en el mantenedor de clasificación y se incluye en el CSV. Se pueden editar y borrar, y el botón *Exportar / Importar fichas* mueve el registro completo entre equipos como un JSON — útil hasta que la captura se automatice.
+
+Las fichas se guardan en el navegador de quien las carga (localStorage), así que conviene exportarlas para respaldo o para consolidar el trabajo de varias personas.
 
 ## Agregar un proveedor nuevo
 
