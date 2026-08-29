@@ -429,6 +429,13 @@ async function cargarDatosLocales() {
 }
 
 (async () => {
-  try { await cargarDatosLocales(); }
-  catch { /* sin carpeta datos/: queda la portada para elegir carpeta manualmente */ }
+  try {
+    await cargarDatosLocales();
+  } catch {
+    // Sin carpeta datos/ (típico de la versión publicada): hay que decirlo, o la
+    // portada queda muda y parece que la app no hace nada.
+    const aviso = $id('aviso-sin-datos');
+    if (aviso) aviso.hidden = false;
+    $id('btn-local').classList.add('destacado');
+  }
 })();

@@ -30,6 +30,10 @@
   .opcion h3 { margin: 0 0 8px; font-size: 15px; color: var(--navy); }
   .opcion p { font-size: 12.5px; color: #64748b; margin: 0 0 16px; line-height: 1.5; }
   #progreso { margin-top: 26px; font-size: 13px; color: var(--azul); min-height: 20px; }
+  #aviso-sin-datos { background: #fef3c7; border: 1px solid #fcd34d; color: #92400e; border-radius: 10px;
+    padding: 14px 18px; font-size: 13px; line-height: 1.6; max-width: 700px; margin: 0 auto 24px; text-align: left; }
+  #aviso-sin-datos code { background: #fde68a; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .boton.destacado { box-shadow: 0 0 0 3px rgba(52,88,177,.25); }
   /* Tarjetas resumen */
   #tarjetas { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 22px; }
   .tarjeta { background: #fff; border: 1px solid var(--borde); border-radius: 12px; padding: 14px 20px; min-width: 180px; }
@@ -129,6 +133,12 @@
 <main>
   <section id="portada">
     <h2>Generar reporte consolidado</h2>
+    <div id="aviso-sin-datos" hidden>
+      <b>Esta versión publicada no incluye datos</b> — por confidencialidad, el sitio contiene solo el programa.
+      Para ver el reporte, pulsa <b>“Elegir carpeta…”</b> y selecciona la carpeta
+      <code>Consolidado Cobros - Pagos [Compliance]</code> sincronizada con OneDrive en tu equipo.
+      La app la recordará para las próximas veces y nada se sube a internet.
+    </div>
     <p>La aplicación recorre la carpeta <b>Consolidado Cobros - Pagos [Compliance]</b>, interpreta los documentos de cada proveedor (boletas, facturas, notas de cobro y minutas) y construye el resumen de gastos por país y mes, en CLP. Nada se sube a servidores externos: todo se procesa en tu navegador.</p>
     <div class="opciones-carga">
       <div class="opcion">
