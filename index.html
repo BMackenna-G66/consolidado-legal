@@ -51,11 +51,17 @@
   .pivot .total-anio { background: #eef2ff; font-weight: 600; border-left: 2px solid var(--borde); }
   .pivot thead .total-anio, .pivot thead .total-general { background: #22315e; }
   .pivot .total-general { background: #e8edfb; font-weight: 700; }
-  .pivot tr.nivel-pais { font-weight: 600; cursor: pointer; background: #fbfcff; }
-  .pivot tr.nivel-prov { cursor: pointer; }
-  .pivot tr.nivel-prov .etiqueta { padding-left: 26px; color: #334155; }
-  .pivot tr.nivel-cat .etiqueta { padding-left: 46px; color: #64748b; }
-  .pivot tr.nivel-cat { font-size: 11.5px; }
+  /* Niveles jerárquicos: cada uno se indenta y aclara un poco más */
+  .pivot tr.lvl-0 { font-weight: 600; background: #fbfcff; }
+  .pivot tr.lvl-0 .etiqueta { padding-left: 10px; }
+  .pivot tr.lvl-1 .etiqueta { padding-left: 30px; color: #334155; }
+  .pivot tr.lvl-2 .etiqueta { padding-left: 50px; color: #475569; }
+  .pivot tr.lvl-2 { font-size: 11.5px; }
+  .pivot tr.lvl-3 .etiqueta { padding-left: 70px; color: #64748b; font-style: italic; }
+  .pivot tr.lvl-3 { font-size: 11px; }
+  .pivot tr.expandible { cursor: pointer; }
+  .pivot tr.expandible:hover { background: #f1f5f9; }
+  .pivot .conteo { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 500; color: #94a3b8; background: #f1f5f9; border-radius: 9px; padding: 1px 7px; }
   .pivot tr.oculto { display: none; }
   .pivot .flecha { display: inline-block; transition: transform .15s; color: var(--azul); }
   .pivot tr.abierto .flecha { transform: rotate(90deg); }
@@ -155,6 +161,8 @@
       <label><input type="checkbox" id="f-juicios"> Juicios y otros (cuantías)</label>
       <b>Año:</b> <select id="f-anio"><option value="">Todos</option></select>
       <b>Mes:</b> <select id="f-mes"><option value="">Todos</option></select>
+      <b>Abrir por:</b> <select id="f-agrupacion"></select>
+      <button class="boton secundario" id="btn-expandir" type="button">⌄ Expandir todo</button>
     </div>
     <div id="pivot-principal"></div>
 

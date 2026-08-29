@@ -34,6 +34,41 @@ function numerosCLP(texto) {
   return out;
 }
 
+// Solicitantes mencionados en un documento ("Solicitado por X", "Solicitante: X").
+// Si hay uno solo se puede atribuir; si hay varios se marca como tal y se listan.
+function solicitantesDelTexto(texto) {
+  const nombres = new Set();
+  const re = /Solicitad[oa]\s+por\s+([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ.'-]*(?:\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ.'-]*){0,3})|Solicitante\s*:?\s*([A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ.'-]*(?:\s+[A-ZÁÉÍÓÚÑ][\wÁÉÍÓÚÑáéíóúñ.'-]*){0,3})/g;
+  let m;
+  while ((m = re.exec(texto))) {
+    const n = (m[1] || m[2] || '').trim().replace(/\s+/g, ' ');
+    if (n && !/^sin\b/i.test(n) && n.length > 3) nombres.add(n);
+  }
+  return [...nombres];
+}
+
+// Solicitantes que aparecen en las hojas de detalle de un libro Excel
+function solicitantesDeHojas(wb) {
+  const nombres = new Set();
+  for (const hoja of wb.SheetNames) {
+    const filas = filasDeHoja(wb.Sheets[hoja]);
+    const hIdx = filas.findIndex(r => r && r.some(c => /solicitante/i.test(String(c ?? ''))));
+    if (hIdx < 0) continue;
+    const col = filas[hIdx].findIndex(c => /solicitante/i.test(String(c ?? '')));
+    for (const r of filas.slice(hIdx + 1)) {
+      const v = String(r[col] ?? '').trim();
+      if (v && v.length > 3 && !/^total/i.test(v)) nombres.add(v);
+    }
+  }
+  return [...nombres];
+}
+
+function solicitanteResumen(lista) {
+  if (!lista.length) return '';
+  if (lista.length === 1) return lista[0];
+  return `Varios (${lista.length})`;
+}
+
 function fechaDoc(texto, ruta, etiqueta) {
   if (etiqueta) {
     const zona = texto.match(new RegExp(etiqueta + '[\\s\\S]{0,60}', 'i'));
@@ -82,6 +117,7 @@ export async function parseMoragaBH(buf, ruta, params, archivo) {
     registros: [{
       ...fechaReg(f), pais: 'Chile', proveedor: 'Alvaro Moraga',
       categoria: 'Asesoría Profesional', concepto: 'Gastos', moneda: 'CLP',
+      solicitante: solicitanteResumen(solicitantesDelTexto(texto)),
       montoOrigen: neto, clp: neto, archivo, detalle: mDesc ? mDesc[1].trim() : 'Boleta de honorarios',
     }],
     estado: retencion ? 'ok' : 'supuesto',
@@ -99,7 +135,10 @@ export async function parseMoragaNCCL(buf, ruta, params, archivo) {
     const todos = [...texto.matchAll(/UF\s*([\d]{1,3}(?:[.,]\d{1,2})?)/g)].map(m => numeroCL(m[1])).filter(v => v > 0);
     if (todos.length) uf = Math.max(...todos);
   }
-  if (!uf) return { registros: [], estado: 'error', nota: 'No se encontró monto UF en la nota de cobro' };
+  const solicitantesAnexo = solicitantesDelTexto(texto);
+  if (!uf) return { registros: [], estado: 'omitido', solicitantesAnexo,
+    nota: 'Nota de cobro sin monto (solo detalle de horas) — el cobro lo aporta la boleta del mes'
+      + (solicitantesAnexo.length ? `; aporta ${solicitantesAnexo.length} solicitante(s)` : '') };
   // La carpeta del mes manda: las descripciones internas traen fechas de otros meses.
   // El año, si la ruta no lo trae, sale del período de facturación del documento.
   const rf = fechaDeRuta(ruta);
@@ -112,8 +151,10 @@ export async function parseMoragaNCCL(buf, ruta, params, archivo) {
     registros: [{
       ...fechaReg(f), pais: 'Chile', proveedor: 'Alvaro Moraga',
       categoria: 'Asesoría Profesional', concepto: 'Gastos', moneda: 'UF',
+      solicitante: solicitanteResumen(solicitantesDelTexto(texto)),
       montoOrigen: uf, clp, archivo, detalle: `Nota de cobro ${uf} UF`,
     }],
+    solicitantesAnexo,
     estado: 'supuesto',
     nota: `UF ${uf} × $${fmt(params.UF_CLP)} = ${fmt(clp)} (valor UF configurable)`,
   };
@@ -136,6 +177,7 @@ export async function parseFacturaExenta(buf, ruta, params, archivo, proveedor) 
       ...fechaReg(f), pais: proveedor.pais, proveedor: proveedor.nombre,
       categoria: esGasto ? 'Gastos notariales y otros' : 'Honorarios varios',
       concepto: esGasto ? 'Gastos' : 'Honorarios', moneda: 'CLP',
+      solicitante: solicitanteResumen(solicitantesDelTexto(texto)),
       montoOrigen: monto, clp: monto, archivo, detalle: mDesc ? mDesc[1].trim() : 'Factura',
     }],
     estado: 'ok', nota: `Monto total ${fmt(monto)}`,
@@ -155,6 +197,7 @@ export async function parseSensusNC(buf, ruta, params, archivo) {
     registros: [{
       ...fechaReg(f), pais: 'Chile', proveedor: 'Sensus Legis',
       categoria: 'Honorarios Ley 20.009', concepto: 'Honorarios', moneda: 'UF',
+      solicitante: solicitanteResumen(solicitantesDelTexto(texto)),
       montoOrigen: uf, clp, archivo, detalle: `Hitos Ley 20.009: ${uf} UF`,
     }],
     estado: 'supuesto',
@@ -195,6 +238,7 @@ export async function parseFacturaGenerica(buf, ruta, params, archivo, proveedor
       pais: proveedor.pais, proveedor: proveedor.nombre,
       categoria: esHonorario ? 'Honorarios legales' : 'Gastos legales',
       concepto: esHonorario ? 'Honorarios' : 'Gastos',
+      solicitante: solicitanteResumen(solicitantesDelTexto(texto)),
       moneda, montoOrigen: monto, clp, archivo,
       detalle: archivo.replace(/\.[a-z]+$/i, ''),
     }],
@@ -244,6 +288,7 @@ export function parseAndesLatam(buf, ruta, params, archivo) {
       }
     }
     if (isFinite(total) && total > 0) {
+      const solicitantes = solicitantesDeHojas(wb);
       const rf = fechaDeRuta(ruta);
       const f = hasta || desde;
       const mes = (f && f.mes) || rf.mes || null;
@@ -253,6 +298,7 @@ export function parseAndesLatam(buf, ruta, params, archivo) {
         registros: [{
           dia: (f && f.dia) || 1, mes, anio, pais: 'Perú', proveedor: 'Andes Latam',
           categoria: 'Asesoría legal Andes Latam', concepto: 'Honorarios', moneda: 'USD',
+          solicitante: solicitanteResumen(solicitantes),
           montoOrigen: total, clp, archivo,
           detalle: `Minuta de liquidación${factura ? ' ' + factura : ''} (honorarios + gastos + IGV)`,
         }],
@@ -280,6 +326,7 @@ function parseAndesPorLineas(buf, ruta, params, archivo) {
     const cTotal = buscaColumna(H, /^Total$/i);
     const cCat = buscaColumna(H, /Categor/i);
     const cDesc = buscaColumna(H, /Descripci/i);
+    const cSolic = buscaColumna(H, /Solicitante/i);
     if (cValorUSD >= 0) {
       // Timesheet de abogados en USD (columnas Día/Mes/Año)
       const cDia = buscaColumna(H, /^D[ií]a$/i), cMes = buscaColumna(H, /^Mes$/i), cAnio = buscaColumna(H, /^A[ñn]o$/i);
@@ -291,6 +338,7 @@ function parseAndesPorLineas(buf, ruta, params, archivo) {
           dia: numeroUS(r[cDia]) || 1, mes: numeroUS(r[cMes]) || null, anio: numeroUS(r[cAnio]) || null,
           pais: 'Perú', proveedor: 'Andes Latam',
           categoria: (cCat >= 0 && r[cCat]) ? String(r[cCat]) : 'Asesoría legal por horas',
+          solicitante: (cSolic >= 0 && r[cSolic]) ? String(r[cSolic]).trim() : '',
           concepto: 'Gastos', moneda: 'USD', montoOrigen: usd, clp, archivo,
           detalle: cDesc >= 0 ? String(r[cDesc] ?? '').slice(0, 120) : '',
         });
@@ -308,6 +356,7 @@ function parseAndesPorLineas(buf, ruta, params, archivo) {
         registros.push({
           dia, mes, anio, pais: 'Perú', proveedor: 'Andes Latam',
           categoria: (cCat >= 0 && r[cCat]) ? String(r[cCat]) : 'Gastos reembolsables',
+          solicitante: (cSolic >= 0 && r[cSolic]) ? String(r[cSolic]).trim() : '',
           concepto: 'Gastos', moneda: 'PEN', montoOrigen: pen, clp, archivo,
           detalle: cDesc >= 0 ? String(r[cDesc] ?? '').slice(0, 120) : '',
         });
@@ -338,6 +387,7 @@ export function parseTabularGenerico(buf, ruta, params, archivo, proveedor) {
     const cMonto = buscaColumna(H, /^total\b/i, /valor/i, /monto/i);
     const cCat = buscaColumna(H, /categor/i);
     const cDesc = buscaColumna(H, /descripci/i, /detalle/i, /materia/i);
+    const cSolic = buscaColumna(H, /solicitante/i, /solicitado/i);
     for (const r of filas.slice(hIdx + 1)) {
       const v = numeroUS(r[cMonto]);
       if (!isFinite(v) || v <= 0) continue;
@@ -351,6 +401,7 @@ export function parseTabularGenerico(buf, ruta, params, archivo, proveedor) {
       registros.push({
         dia, mes, anio, pais: proveedor.pais, proveedor: proveedor.nombre,
         categoria: (cCat >= 0 && r[cCat]) ? String(r[cCat]) : 'Gastos legales',
+        solicitante: (cSolic >= 0 && r[cSolic]) ? String(r[cSolic]).trim() : '',
         concepto: /honorario/i.test(String(r[cCat] ?? '') + nombre) ? 'Honorarios' : 'Gastos',
         moneda, montoOrigen: v, clp: Math.round(v * tasa), archivo,
         detalle: cDesc >= 0 ? String(r[cDesc] ?? '').slice(0, 120) : '',
@@ -439,6 +490,7 @@ export async function procesarArchivo({ nombre, ruta, arrayBuffer }, params) {
   // Nota de cobro en UF: es de Moraga (Chile) aunque esté archivada en otra carpeta.
   if (/\.pdf$/i.test(nombre) && /^ncc/i.test(nombre)) {
     const r = await parseMoragaNCCL(arrayBuffer, ruta, params, nombre);
+    if (!r.registros.length) return { ...base, ...r, proveedor: 'Alvaro Moraga', pais: 'Chile' };
     if (r.registros.length) {
       const fuera = !prov || prov.id !== 'moraga';
       if (fuera) r.nota += ' · ⚠ Documento de Moraga (Chile) archivado fuera de su carpeta';
@@ -455,7 +507,15 @@ export async function procesarArchivo({ nombre, ruta, arrayBuffer }, params) {
     let r;
     // Anexos de horas sin montos (HH…, "detalle cobro"): el monto lo aporta la boleta del mes
     if (ext === 'pdf' && (/^hh\b/i.test(nombre) || /detalle\s+de?\s*cobro/i.test(nombre)) && !/^bh/i.test(nombre)) {
-      return { ...base, estado: 'omitido', nota: 'Anexo de detalle de horas (sin montos) — el cobro lo aporta la boleta o factura del mes', registros: [] };
+      // No trae montos, pero sí los solicitantes del mes: se guardan para enriquecer
+      // los cobros de la misma carpeta.
+      let solicitantesAnexo = [];
+      try { solicitantesAnexo = solicitantesDelTexto(await textoPdf(arrayBuffer)); } catch { /* anexo ilegible */ }
+      return {
+        ...base, estado: 'omitido', registros: [], solicitantesAnexo,
+        nota: 'Anexo de detalle de horas (sin montos) — el cobro lo aporta la boleta o factura del mes'
+          + (solicitantesAnexo.length ? `; aporta ${solicitantesAnexo.length} solicitante(s)` : ''),
+      };
     }
     if (prov.id === 'moraga' && ext === 'pdf') {
       r = /^bh/i.test(nombre) ? await parseMoragaBH(arrayBuffer, ruta, params, nombre)
@@ -485,6 +545,34 @@ export async function procesarArchivo({ nombre, ruta, arrayBuffer }, params) {
   } catch (e) {
     return { ...base, estado: 'error', nota: 'Error al leer: ' + (e.message || e) + avisoNuevo, registros: [] };
   }
+}
+
+// Los anexos de detalle traen los solicitantes del mes pero no los montos; las
+// boletas traen el monto pero no el solicitante. Se cruzan por carpeta (= mes).
+export function enriquecerSolicitantes(resultados) {
+  const porCarpeta = new Map();
+  const carpetaDe = res => String(res.ruta || '').split('/').slice(0, -1).join('/');
+  for (const res of resultados) {
+    if (!res.solicitantesAnexo || !res.solicitantesAnexo.length) continue;
+    const set = porCarpeta.get(carpetaDe(res)) || new Set();
+    res.solicitantesAnexo.forEach(s => set.add(s));
+    porCarpeta.set(carpetaDe(res), set);
+  }
+  if (!porCarpeta.size) return resultados;
+  for (const res of resultados) {
+    if (!res.registros || !res.registros.length) continue;
+    const lista = [...(porCarpeta.get(carpetaDe(res)) || [])];
+    if (!lista.length) continue;
+    let n = 0;
+    for (const r of res.registros) {
+      if (r.solicitante) continue;
+      r.solicitante = solicitanteResumen(lista);
+      r.solicitantesLista = lista;
+      n++;
+    }
+    if (n) res.nota = (res.nota || '') + ` · solicitante(s) según el anexo del mes: ${lista.join(', ')}`;
+  }
+  return resultados;
 }
 
 // Deduplicación Moraga: si un mes tiene boleta (BH) y nota de cobro (NCCL), la boleta manda.

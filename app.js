@@ -1,9 +1,9 @@
 // Orquestador: carga archivos, los procesa con los parsers y pinta el reporte.
 
 import { DEFAULT_PARAMS, MESES } from './config.js';
-import { procesarArchivo, deduplicar, aplicarBaseHistorica } from './parsers.js';
+import { procesarArchivo, deduplicar, aplicarBaseHistorica, enriquecerSolicitantes } from './parsers.js';
 import { leerCarpetaLocal, leerSharePoint, graphDisponible, soportaFSA, elegirCarpetaFSA, leerCarpetaRecordada, carpetaGuardada, setClientId } from './fuentes.js';
-import { construirPivot, renderPivot, renderResumenTarjetas, exportarCSV } from './reporte.js';
+import { construirPivot, renderPivot, renderResumenTarjetas, exportarCSV, AGRUPACIONES } from './reporte.js';
 import { clasificar, overrides, setOverride, CONCEPTOS, clasificarConIA, apiKeyGemini, setApiKeyGemini, normalizaCat } from './clasificador.js';
 import { fichas, guardarFicha, borrarFicha, nuevoId, calcularMontos, resultadoManual,
          exportarFichasJSON, importarFichasJSON, MONEDAS, PAISES, CONCEPTOS_FICHA } from './manual.js';
@@ -94,6 +94,16 @@ $id('f-gastos').addEventListener('change', renderTodo);
 $id('f-honorarios').addEventListener('change', renderTodo);
 $id('f-juicios').addEventListener('change', renderTodo);
 $id('f-anio').addEventListener('change', renderTodo);
+$id('f-agrupacion').addEventListener('change', renderTodo);
+$id('btn-expandir').addEventListener('click', () => {
+  const filas = [...document.querySelectorAll('#pivot-principal tr[data-ruta]')];
+  const cerrado = filas.some(f => f.classList.contains('oculto'));
+  filas.forEach(f => {
+    f.classList.toggle('oculto', !cerrado && f.dataset.nivel !== '0');
+    f.classList.toggle('abierto', cerrado && f.classList.contains('expandible'));
+  });
+  $id('btn-expandir').textContent = cerrado ? '⌃ Colapsar todo' : '⌄ Expandir todo';
+});
 $id('f-mes').addEventListener('change', renderTodo);
 $id('btn-mantenedor').addEventListener('click', () => $id('mantenedor').classList.toggle('seccion-oculta'));
 $id('btn-fichas').addEventListener('click', () => {
@@ -114,6 +124,7 @@ async function procesarYRender() {
   resultadosArchivos = [];
   for (const a of archivosCrudos) resultadosArchivos.push(await procesarArchivo(a, params));
   deduplicar(resultadosArchivos);
+  enriquecerSolicitantes(resultadosArchivos);
   aplicarBaseHistorica(resultadosArchivos);
   finalizarRender(params);
 }
@@ -132,6 +143,7 @@ function finalizarRender(params) {
   for (const b of ['btn-params', 'btn-mantenedor', 'btn-fichas', 'btn-csv', 'btn-recargar']) $id(b).hidden = false;
   montarPanelParams(params);
   montarFormularioFicha(params);
+  montarSelectorAgrupacion();
   montarFiltrosFecha();
   renderTodo();
 }
@@ -167,6 +179,12 @@ function registrosFiltrados() {
 }
 
 // Puebla los combos de año y mes con lo que exista en los datos, conservando la selección
+function montarSelectorAgrupacion() {
+  const sel = $id('f-agrupacion');
+  if (sel.options.length) return;
+  sel.innerHTML = AGRUPACIONES.map(a => `<option value="${a.id}">${a.nombre}</option>`).join('');
+}
+
 function montarFiltrosFecha() {
   const regs = resultados.flatMap(r => r.registros);
   const anios = [...new Set(regs.map(r => r.anio).filter(Boolean))].sort();
@@ -180,7 +198,8 @@ function montarFiltrosFecha() {
 function renderTodo() {
   const regs = registrosFiltrados();
   renderResumenTarjetas($id('tarjetas'), regs);
-  renderPivot($id('pivot-principal'), construirPivot(regs), 'Resumen de gastos por conceptos legales / administrativos (CLP)');
+  const agr = AGRUPACIONES.find(a => a.id === $id('f-agrupacion').value) || AGRUPACIONES[0];
+  renderPivot($id('pivot-principal'), construirPivot(regs, agr.dims), 'Resumen de gastos por conceptos legales / administrativos (CLP)');
   renderMantenedor();
   renderArchivos();
 }

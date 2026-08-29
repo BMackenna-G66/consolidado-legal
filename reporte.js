@@ -1,117 +1,134 @@
-// Motor del reporte: pivot país × mes (columnas agrupadas por año, totales por año
-// y total general), con filas expandibles por proveedor y categoría.
+// Motor del reporte: tabla dinámica con columnas por mes agrupadas por año y
+// filas jerárquicas de profundidad configurable (país → proveedor → concepto → solicitante).
 
 import { MESES } from './config.js';
 
 const fmtCLP = new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 });
 const $ = v => (v == null || v === 0) ? '' : '$' + fmtCLP.format(Math.round(v));
 
-export function construirPivot(registros) {
-  // Estructura: paises → { total, meses{ 'anio-mes': v }, hijos: proveedor → categoria }
+// Agrupaciones disponibles. La primera es la vista por defecto.
+export const AGRUPACIONES = [
+  { id: 'pais', nombre: 'País → Proveedor → Concepto → Solicitante', dims: ['pais', 'proveedor', 'categoria', 'solicitante'] },
+  { id: 'solicitante', nombre: 'País → Solicitante → Proveedor → Concepto', dims: ['pais', 'solicitante', 'proveedor', 'categoria'] },
+  { id: 'proveedor', nombre: 'Proveedor → Concepto → Solicitante', dims: ['proveedor', 'categoria', 'solicitante'] },
+  { id: 'concepto', nombre: 'Concepto → País → Proveedor → Solicitante', dims: ['categoria', 'pais', 'proveedor', 'solicitante'] },
+];
+
+const VACIOS = {
+  solicitante: 'Sin solicitante registrado',
+  categoria: 'Sin concepto',
+  proveedor: 'Sin proveedor',
+  pais: 'Sin país',
+};
+
+const valorDim = (r, dim) => {
+  const v = r[dim];
+  return (v == null || String(v).trim() === '') ? (VACIOS[dim] || '(sin dato)') : String(v);
+};
+
+function nodoVacio() {
+  return { meses: {}, porAnio: {}, total: 0, n: 0, hijos: new Map() };
+}
+
+function acumular(nodo, r) {
+  const k = `${r.anio}-${r.mes}`;
+  nodo.meses[k] = (nodo.meses[k] || 0) + r.clp;
+  nodo.porAnio[r.anio] = (nodo.porAnio[r.anio] || 0) + r.clp;
+  nodo.total += r.clp;
+  nodo.n++;
+}
+
+export function construirPivot(registros, dims) {
+  const dimensiones = dims && dims.length ? dims : AGRUPACIONES[0].dims;
   const anios = [...new Set(registros.map(r => r.anio).filter(Boolean))].sort();
   const columnas = [];
   for (const a of anios) {
-    const mesesConDatos = [...new Set(registros.filter(r => r.anio === a).map(r => r.mes).filter(Boolean))];
-    const desde = Math.min(...mesesConDatos), hasta = Math.max(...mesesConDatos);
-    for (let m = desde; m <= hasta; m++) columnas.push({ anio: a, mes: m });
+    const meses = [...new Set(registros.filter(r => r.anio === a).map(r => r.mes).filter(Boolean))];
+    if (!meses.length) continue;
+    for (let m = Math.min(...meses); m <= Math.max(...meses); m++) columnas.push({ anio: a, mes: m });
     columnas.push({ anio: a, total: true });
   }
 
-  const arbol = new Map();
+  const raiz = nodoVacio();
   for (const r of registros) {
     if (!r.anio || !r.mes) continue;
-    const kMes = `${r.anio}-${r.mes}`;
-    const pais = nodo(arbol, r.pais);
-    suma(pais, kMes, r.clp, r.anio);
-    const prov = nodo(pais.hijos, r.proveedor);
-    suma(prov, kMes, r.clp, r.anio);
-    const cat = nodo(prov.hijos, r.categoria || 'Sin categoría');
-    suma(cat, kMes, r.clp, r.anio);
+    acumular(raiz, r);
+    let actual = raiz;
+    for (const dim of dimensiones) {
+      const clave = valorDim(r, dim);
+      if (!actual.hijos.has(clave)) actual.hijos.set(clave, nodoVacio());
+      actual = actual.hijos.get(clave);
+      acumular(actual, r);
+    }
   }
-  return { anios, columnas, arbol };
-}
-
-function nodo(mapa, clave) {
-  if (!mapa.has(clave)) mapa.set(clave, { meses: {}, porAnio: {}, total: 0, hijos: new Map() });
-  return mapa.get(clave);
-}
-function suma(n, kMes, v, anio) {
-  n.meses[kMes] = (n.meses[kMes] || 0) + v;
-  n.porAnio[anio] = (n.porAnio[anio] || 0) + v;
-  n.total += v;
+  return { anios, columnas, raiz, dimensiones };
 }
 
 export function renderPivot(contenedor, pivot, titulo) {
-  const { anios, columnas, arbol } = pivot;
-  const totalGeneral = { meses: {}, porAnio: {}, total: 0 };
-  for (const [, p] of arbol) {
-    for (const k in p.meses) totalGeneral.meses[k] = (totalGeneral.meses[k] || 0) + p.meses[k];
-    for (const a in p.porAnio) totalGeneral.porAnio[a] = (totalGeneral.porAnio[a] || 0) + p.porAnio[a];
-    totalGeneral.total += p.total;
-  }
+  const { anios, columnas, raiz, dimensiones } = pivot;
 
-  let html = `<div class="pivot-titulo">${titulo}</div><div class="pivot-scroll"><table class="pivot">`;
-  // Fila de años
-  html += '<thead><tr><th class="etiqueta"></th>';
-  for (const a of anios) {
-    const nMeses = columnas.filter(c => c.anio === a && !c.total).length;
-    html += `<th colspan="${nMeses}" class="anio">${a}</th><th class="total-anio">Total ${a}</th>`;
-  }
-  html += '<th class="total-general">Total general</th></tr>';
-  // Fila de meses
-  html += '<tr><th class="etiqueta">Etiquetas de fila</th>';
-  for (const c of columnas) html += c.total ? '<th class="total-anio"></th>' : `<th>${MESES[c.mes - 1]}</th>`;
-  html += '<th class="total-general"></th></tr></thead><tbody>';
-
-  const filaCeldas = (n) => {
+  const celdas = (n) => {
     let s = '';
     for (const c of columnas) {
       s += c.total
         ? `<td class="total-anio num">${$(n.porAnio[c.anio])}</td>`
         : `<td class="num">${$(n.meses[`${c.anio}-${c.mes}`])}</td>`;
     }
-    s += `<td class="total-general num">${$(n.total)}</td>`;
-    return s;
+    return s + `<td class="total-general num">${$(n.total)}</td>`;
   };
 
-  const paises = [...arbol.entries()].sort((a, b) => b[1].total - a[1].total);
-  let uid = 0;
-  for (const [pais, nP] of paises) {
-    const idP = 'g' + (uid++);
-    html += `<tr class="nivel-pais expandible" data-grupo="${idP}"><td class="etiqueta"><span class="flecha">▸</span> ${pais}</td>${filaCeldas(nP)}</tr>`;
-    for (const [prov, nProv] of [...nP.hijos.entries()].sort((a, b) => b[1].total - a[1].total)) {
-      const idProv = 'g' + (uid++);
-      html += `<tr class="nivel-prov oculto expandible" data-padre="${idP}" data-grupo="${idProv}"><td class="etiqueta"><span class="flecha">▸</span> ${prov}</td>${filaCeldas(nProv)}</tr>`;
-      for (const [cat, nCat] of [...nProv.hijos.entries()].sort((a, b) => b[1].total - a[1].total)) {
-        html += `<tr class="nivel-cat oculto" data-padre="${idProv}" data-ancestro="${idP}"><td class="etiqueta">${cat}</td>${filaCeldas(nCat)}</tr>`;
-      }
-    }
+  let html = `<div class="pivot-titulo">${titulo}</div><div class="pivot-scroll"><table class="pivot">`;
+  html += '<thead><tr><th class="etiqueta"></th>';
+  for (const a of anios) {
+    const nMeses = columnas.filter(c => c.anio === a && !c.total).length;
+    html += `<th colspan="${nMeses}" class="anio">${a}</th><th class="total-anio">Total ${a}</th>`;
   }
-  html += `<tr class="fila-total"><td class="etiqueta">Total general</td>${filaCeldas(totalGeneral)}</tr>`;
+  html += '<th class="total-general">Total general</th></tr>';
+  html += '<tr><th class="etiqueta">Etiquetas de fila</th>';
+  for (const c of columnas) html += c.total ? '<th class="total-anio"></th>' : `<th>${MESES[c.mes - 1]}</th>`;
+  html += '<th class="total-general"></th></tr></thead><tbody>';
+
+  // Recorre el árbol en profundidad emitiendo una fila por nodo.
+  // data-ruta ("0.2.1") permite plegar toda la descendencia por prefijo.
+  const filas = [];
+  (function recorrer(nodo, nivel, ruta) {
+    const hijos = [...nodo.hijos.entries()].sort((a, b) => b[1].total - a[1].total);
+    hijos.forEach(([clave, hijo], i) => {
+      const rutaHijo = ruta ? `${ruta}.${i}` : String(i);
+      const tieneHijos = hijo.hijos.size > 0;
+      const flecha = tieneHijos ? '<span class="flecha">▸</span> ' : '';
+      const dim = dimensiones[nivel];
+      filas.push(
+        `<tr class="lvl-${nivel} ${tieneHijos ? 'expandible' : ''} ${nivel > 0 ? 'oculto' : ''}" data-ruta="${rutaHijo}" data-nivel="${nivel}">` +
+        `<td class="etiqueta" title="${dim}: ${clave} · ${hijo.n} movimiento(s)">${flecha}${clave}` +
+        `<span class="conteo">${hijo.n}</span></td>${celdas(hijo)}</tr>`
+      );
+      if (tieneHijos) recorrer(hijo, nivel + 1, rutaHijo);
+    });
+  })(raiz, 0, '');
+
+  html += filas.join('');
+  html += `<tr class="fila-total"><td class="etiqueta">Total general</td>${celdas(raiz)}</tr>`;
   html += '</tbody></table></div>';
   contenedor.innerHTML = html;
 
-  // Expandir/colapsar
   contenedor.querySelectorAll('tr.expandible').forEach(tr => {
     tr.addEventListener('click', () => {
-      const grupo = tr.dataset.grupo;
+      const ruta = tr.dataset.ruta;
       const abierto = tr.classList.toggle('abierto');
-      contenedor.querySelectorAll(`tr[data-padre="${grupo}"]`).forEach(h => {
-        h.classList.toggle('oculto', !abierto);
-        if (!abierto && h.dataset.grupo) {
-          h.classList.remove('abierto');
-          contenedor.querySelectorAll(`tr[data-padre="${h.dataset.grupo}"]`).forEach(n => n.classList.add('oculto'));
-        }
+      const hijosDirectos = contenedor.querySelectorAll(`tr[data-ruta^="${ruta}."]`);
+      hijosDirectos.forEach(h => {
+        const profundidad = h.dataset.ruta.split('.').length - ruta.split('.').length;
+        if (abierto && profundidad === 1) h.classList.remove('oculto');
+        else if (!abierto) { h.classList.add('oculto'); h.classList.remove('abierto'); }
       });
-      if (!abierto) contenedor.querySelectorAll(`tr[data-ancestro="${grupo}"]`).forEach(n => n.classList.add('oculto'));
     });
   });
 }
 
 export function renderResumenTarjetas(contenedor, registros) {
   const total = registros.reduce((s, r) => s + r.clp, 0);
-  const porAnio = {};
-  const porPais = {};
+  const porAnio = {}, porPais = {};
   for (const r of registros) {
     if (r.anio) porAnio[r.anio] = (porAnio[r.anio] || 0) + r.clp;
     porPais[r.pais] = (porPais[r.pais] || 0) + r.clp;
@@ -125,8 +142,12 @@ export function renderResumenTarjetas(contenedor, registros) {
 }
 
 export function exportarCSV(registros) {
-  const enc = ['Año', 'Mes', 'Día', 'País', 'Proveedor', 'Categoría', 'Concepto', 'Moneda', 'Monto origen', 'CLP', 'Archivo', 'Detalle'];
-  const filas = registros.map(r => [r.anio, r.mes, r.dia, r.pais, r.proveedor, r.categoria, r.concepto, r.moneda, r.montoOrigen, r.clp, r.archivo, (r.detalle || '').replace(/[\r\n;]+/g, ' ')]);
+  const enc = ['Año', 'Mes', 'Día', 'País', 'Proveedor', 'Solicitante', 'Concepto cobrado', 'Tipo', 'Moneda', 'Monto origen', 'CLP', 'USD', 'Origen', 'Archivo', 'Detalle'];
+  const filas = registros.map(r => [
+    r.anio, r.mes, r.dia, r.pais, r.proveedor, r.solicitante || '', r.categoria, r.concepto,
+    r.moneda, r.montoOrigen, r.clp, r.usd ?? '', r.fuente || 'documento', r.archivo,
+    (r.detalle || '').replace(/[\r\n;]+/g, ' '),
+  ]);
   const csv = [enc, ...filas].map(f => f.map(c => `"${String(c ?? '').replace(/"/g, '""')}"`).join(';')).join('\n');
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
