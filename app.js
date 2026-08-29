@@ -5,6 +5,8 @@ import { procesarArchivo, deduplicar, aplicarBaseHistorica } from './parsers.js'
 import { leerCarpetaLocal, leerSharePoint, graphDisponible, soportaFSA, elegirCarpetaFSA, leerCarpetaRecordada, carpetaGuardada, setClientId } from './fuentes.js';
 import { construirPivot, renderPivot, renderResumenTarjetas, exportarCSV } from './reporte.js';
 import { clasificar, overrides, setOverride, CONCEPTOS, clasificarConIA, apiKeyGemini, setApiKeyGemini, normalizaCat } from './clasificador.js';
+import { fichas, guardarFicha, borrarFicha, nuevoId, calcularMontos, resultadoManual,
+         exportarFichasJSON, importarFichasJSON, MONEDAS, PAISES, CONCEPTOS_FICHA } from './manual.js';
 
 window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
@@ -39,21 +41,24 @@ $id('input-carpeta').addEventListener('change', async e => {
   await procesarYRender();
 });
 
-// Si hay una carpeta recordada de una visita anterior, ofrecer actualización en un clic
+// Carpeta recordada de una visita anterior: si el permiso sigue vigente se relee
+// sola al abrir; si no, queda el botón para reactivarla con un clic.
 (async () => {
   const dir = await carpetaGuardada();
   if (!dir) return;
   const btn = $id('btn-actualizar');
   btn.hidden = false;
   btn.textContent = `↻ Actualizar desde "${dir.name}"`;
-  btn.addEventListener('click', async () => {
-    try {
-      progreso('Releyendo carpeta…');
-      const { archivos } = await leerCarpetaRecordada(progreso);
-      archivosCrudos = archivos;
-      await procesarYRender();
-    } catch (e) { progreso('⚠ ' + (e.message || e)); }
-  });
+  const releer = async () => {
+    progreso('Releyendo carpeta…');
+    const { archivos } = await leerCarpetaRecordada(progreso);
+    archivosCrudos = archivos;
+    await procesarYRender();
+  };
+  btn.addEventListener('click', () => releer().catch(e => progreso('⚠ ' + (e.message || e))));
+  try {
+    if ((await dir.queryPermission({ mode: 'read' })) === 'granted') await releer();
+  } catch { /* sin permiso vigente: el usuario usa el botón */ }
 })();
 
 $id('btn-sharepoint').addEventListener('click', async () => {
@@ -91,29 +96,53 @@ $id('f-juicios').addEventListener('change', renderTodo);
 $id('f-anio').addEventListener('change', renderTodo);
 $id('f-mes').addEventListener('change', renderTodo);
 $id('btn-mantenedor').addEventListener('click', () => $id('mantenedor').classList.toggle('seccion-oculta'));
+$id('btn-fichas').addEventListener('click', () => {
+  const s = $id('fichas');
+  s.classList.toggle('seccion-oculta');
+  if (!s.classList.contains('seccion-oculta')) s.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
 
 function progreso(msg) { $id('progreso').textContent = msg; }
 
 // ---------- pipeline ----------
 
+let resultadosArchivos = []; // solo lo leído de documentos, sin las fichas manuales
+
 async function procesarYRender() {
   const params = paramsActuales();
   progreso(`Interpretando ${archivosCrudos.length} archivos…`);
-  resultados = [];
-  for (const a of archivosCrudos) resultados.push(await procesarArchivo(a, params));
-  deduplicar(resultados);
-  aplicarBaseHistorica(resultados);
+  resultadosArchivos = [];
+  for (const a of archivosCrudos) resultadosArchivos.push(await procesarArchivo(a, params));
+  deduplicar(resultadosArchivos);
+  aplicarBaseHistorica(resultadosArchivos);
   finalizarRender(params);
+}
+
+// Une los documentos leídos con las fichas de carga manual
+function componerResultados(params) {
+  const manual = resultadoManual(params);
+  resultados = manual ? [...resultadosArchivos, manual] : [...resultadosArchivos];
 }
 
 function finalizarRender(params) {
   progreso('');
+  componerResultados(params);
   $id('portada').style.display = 'none';
   $id('vista-reporte').style.display = 'block';
-  for (const b of ['btn-params', 'btn-mantenedor', 'btn-csv', 'btn-recargar']) $id(b).hidden = false;
+  for (const b of ['btn-params', 'btn-mantenedor', 'btn-fichas', 'btn-csv', 'btn-recargar']) $id(b).hidden = false;
   montarPanelParams(params);
+  montarFormularioFicha(params);
   montarFiltrosFecha();
   renderTodo();
+}
+
+// Recalcula el reporte tras cambiar las fichas manuales, sin releer los documentos
+function refrescarConFichas() {
+  const params = paramsActuales();
+  componerResultados(params);
+  montarFiltrosFecha();
+  renderTodo();
+  renderFichas(params);
 }
 
 // Aplica la clasificación (manual > IA > regla > parser) a cada registro
@@ -154,6 +183,132 @@ function renderTodo() {
   renderPivot($id('pivot-principal'), construirPivot(regs), 'Resumen de gastos por conceptos legales / administrativos (CLP)');
   renderMantenedor();
   renderArchivos();
+}
+
+// ---------- ficha de carga manual ----------
+
+const fmtCLP = n => '$' + new Intl.NumberFormat('es-CL').format(Math.round(n || 0));
+
+function montarFormularioFicha(params) {
+  const opciones = (sel, valores) => { $id(sel).innerHTML = valores.map(v => `<option>${v}</option>`).join(''); };
+  $id('fi-mes').innerHTML = MESES.map((m, i) => `<option value="${i + 1}">${m}</option>`).join('');
+  opciones('fi-pais', PAISES);
+  opciones('fi-concepto', CONCEPTOS_FICHA);
+  opciones('fi-moneda', MONEDAS);
+  const hoy = new Date();
+  if (!$id('fi-anio').value) { $id('fi-anio').value = hoy.getFullYear(); $id('fi-mes').value = hoy.getMonth() + 1; }
+
+  // Sugerencias tomadas de lo que ya existe en el reporte
+  const regs = resultados.flatMap(r => r.registros);
+  $id('lista-proveedores').innerHTML = [...new Set(regs.map(r => r.proveedor))].filter(Boolean).map(p => `<option value="${p}">`).join('');
+  $id('lista-categorias').innerHTML = [...new Set(regs.map(r => r.categoria))].filter(Boolean).slice(0, 60).map(c => `<option value="${c}">`).join('');
+
+  const recalcular = () => {
+    const p = paramsActuales();
+    const { clp, usd } = calcularMontos({
+      moneda: $id('fi-moneda').value,
+      montoOrigen: $id('fi-monto').value,
+      clpManual: $id('fi-clp').value,
+    }, p);
+    $id('fi-usd').value = usd ? 'US$ ' + new Intl.NumberFormat('es-CL', { minimumFractionDigits: 2 }).format(usd) : '';
+    const tasa = $id('fi-moneda').value === 'CLP' ? null : calcularMontos({ moneda: $id('fi-moneda').value, montoOrigen: 1 }, p).clp;
+    $id('fi-ayuda-clp').textContent = tasa ? `sugerido: ${fmtCLP(Number($id('fi-monto').value || 0) * tasa)} (1 ${$id('fi-moneda').value} = ${tasa})` : 'igual al monto de origen';
+    if (!$id('fi-clp').value) $id('fi-clp').placeholder = String(clp || 0);
+  };
+  ['fi-monto', 'fi-moneda', 'fi-clp'].forEach(id => $id(id).addEventListener('input', recalcular));
+  $id('fi-moneda').addEventListener('change', recalcular);
+  recalcular();
+  renderFichas(params);
+}
+
+function limpiarFicha() {
+  for (const id of ['fi-id', 'fi-solicitante', 'fi-proveedor', 'fi-categoria', 'fi-monto', 'fi-clp', 'fi-detalle']) $id(id).value = '';
+  $id('fi-usd').value = '';
+  $id('fi-guardar').textContent = 'Agregar al reporte';
+  $id('fi-msg').textContent = '';
+}
+
+$id('form-ficha').addEventListener('submit', e => {
+  e.preventDefault();
+  const ficha = {
+    id: $id('fi-id').value || nuevoId(),
+    mes: +$id('fi-mes').value, anio: +$id('fi-anio').value, dia: 1,
+    solicitante: $id('fi-solicitante').value.trim(),
+    proveedor: $id('fi-proveedor').value.trim(),
+    pais: $id('fi-pais').value,
+    concepto: $id('fi-concepto').value,
+    categoria: $id('fi-categoria').value.trim() || 'Carga manual',
+    moneda: $id('fi-moneda').value,
+    montoOrigen: Number($id('fi-monto').value),
+    clpManual: $id('fi-clp').value === '' ? null : Number($id('fi-clp').value),
+    detalle: $id('fi-detalle').value.trim(),
+    registrado: new Date().toISOString(),
+  };
+  guardarFicha(ficha);
+  limpiarFicha();
+  $id('fi-msg').textContent = '✓ Ficha guardada y sumada al reporte';
+  setTimeout(() => { $id('fi-msg').textContent = ''; }, 4000);
+  refrescarConFichas();
+});
+
+$id('fi-limpiar').addEventListener('click', limpiarFicha);
+$id('fi-exportar').addEventListener('click', exportarFichasJSON);
+$id('fi-importar-btn').addEventListener('click', () => $id('fi-importar').click());
+$id('fi-importar').addEventListener('change', async e => {
+  if (!e.target.files.length) return;
+  try {
+    const { nuevas, actualizadas } = await importarFichasJSON(e.target.files[0]);
+    $id('fi-msg').textContent = `✓ ${nuevas} nueva(s), ${actualizadas} actualizada(s)`;
+    refrescarConFichas();
+  } catch (err) { $id('fi-msg').textContent = '⚠ ' + (err.message || err); }
+  e.target.value = '';
+});
+
+function renderFichas(params) {
+  const cont = $id('tabla-fichas');
+  if (!cont) return;
+  const lista = fichas();
+  if (!lista.length) { cont.innerHTML = '<div class="archivo-fila">Aún no hay fichas cargadas manualmente.</div>'; return; }
+  const filas = lista
+    .slice()
+    .sort((a, b) => (b.anio - a.anio) || (b.mes - a.mes))
+    .map(f => {
+      const { clp, usd } = calcularMontos(f, params);
+      return `<tr>
+        <td class="etiqueta">${MESES[(f.mes || 1) - 1]} ${f.anio}</td>
+        <td>${f.solicitante || ''}</td>
+        <td>${f.proveedor || ''}</td>
+        <td>${f.pais}</td>
+        <td>${f.concepto}</td>
+        <td class="num">${f.moneda} ${new Intl.NumberFormat('es-CL').format(f.montoOrigen)}</td>
+        <td class="num">${fmtCLP(clp)}</td>
+        <td class="num">US$ ${new Intl.NumberFormat('es-CL', { minimumFractionDigits: 2 }).format(usd)}</td>
+        <td><div class="acciones-fila"><button data-editar="${f.id}">Editar</button><button class="borrar" data-borrar="${f.id}">Borrar</button></div></td>
+      </tr>`;
+    }).join('');
+  cont.innerHTML = `<table class="pivot"><thead><tr>
+    <th class="etiqueta">Período</th><th>Solicitante</th><th>Proveedor</th><th>País</th>
+    <th>Concepto</th><th>Monto origen</th><th>CLP</th><th>USD</th><th></th>
+  </tr></thead><tbody>${filas}</tbody></table>`;
+
+  cont.querySelectorAll('[data-borrar]').forEach(b => b.addEventListener('click', () => {
+    if (!confirm('¿Borrar esta ficha del reporte?')) return;
+    borrarFicha(b.dataset.borrar);
+    refrescarConFichas();
+  }));
+  cont.querySelectorAll('[data-editar]').forEach(b => b.addEventListener('click', () => {
+    const f = fichas().find(x => x.id === b.dataset.editar);
+    if (!f) return;
+    $id('fi-id').value = f.id; $id('fi-mes').value = f.mes; $id('fi-anio').value = f.anio;
+    $id('fi-solicitante').value = f.solicitante || ''; $id('fi-proveedor').value = f.proveedor || '';
+    $id('fi-pais').value = f.pais; $id('fi-concepto').value = f.concepto;
+    $id('fi-categoria').value = f.categoria || ''; $id('fi-moneda').value = f.moneda;
+    $id('fi-monto').value = f.montoOrigen; $id('fi-clp').value = f.clpManual ?? '';
+    $id('fi-detalle').value = f.detalle || '';
+    $id('fi-guardar').textContent = 'Guardar cambios';
+    $id('fi-monto').dispatchEvent(new Event('input'));
+    $id('fichas').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
 }
 
 // ---------- mantenedor de clasificación ----------

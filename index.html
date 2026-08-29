@@ -75,6 +75,24 @@
   .params-grid label { font-size: 12px; color: #475569; display: flex; flex-direction: column; gap: 4px; }
   .params-grid input { border: 1px solid var(--borde); border-radius: 6px; padding: 6px 8px; width: 120px; font: 13px Inter; }
   .nota-params { font-size: 11.5px; color: #94a3b8; margin-top: 10px; }
+  /* Ficha de carga manual */
+  #fichas { margin-top: 30px; }
+  .seccion-oculta { display: none; }
+  .ficha { background: #fff; border: 1px solid var(--borde); border-radius: 12px; padding: 20px 22px; margin-bottom: 16px; }
+  .ficha-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 14px 18px; }
+  .ficha-grid label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 500; color: #475569; }
+  .ficha-grid label.ancho-total { grid-column: 1 / -1; }
+  .ficha-grid input, .ficha-grid select { border: 1px solid var(--borde); border-radius: 7px; padding: 8px 10px; font: 13px Inter; background: #fff; }
+  .ficha-grid input[readonly] { background: #f8fafc; color: #64748b; }
+  .fila-mes-anio { display: flex; gap: 6px; }
+  .fila-mes-anio select { flex: 2; } .fila-mes-anio input { flex: 1; min-width: 74px; }
+  .ayuda { font-size: 10.5px; color: #94a3b8; font-weight: 400; }
+  .ficha-acciones { display: flex; gap: 8px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+  .ficha-espaciador { flex: 1; }
+  .ficha-msg { font-size: 12.5px; color: var(--ok); font-weight: 500; }
+  #tabla-fichas .acciones-fila { display: flex; gap: 6px; }
+  #tabla-fichas button { border: 1px solid var(--borde); background: #fff; border-radius: 6px; padding: 3px 9px; font: 11.5px Inter; cursor: pointer; }
+  #tabla-fichas button.borrar { color: var(--err); border-color: #fecaca; }
   /* Mantenedor */
   #mantenedor { margin-top: 30px; }
   #mantenedor.seccion-oculta { display: none; }
@@ -97,6 +115,7 @@
   <div class="acciones">
     <button class="boton secundario" id="btn-params" hidden>⚙ Parámetros</button>
     <button class="boton secundario" id="btn-mantenedor" hidden>🗂 Mantenedor</button>
+    <button class="boton secundario" id="btn-fichas" hidden>➕ Carga manual</button>
     <button class="boton secundario" id="btn-csv" hidden>⬇ Exportar CSV</button>
     <button class="boton secundario" id="btn-recargar" hidden>↺ Nueva carga</button>
   </div>
@@ -138,6 +157,67 @@
       <b>Mes:</b> <select id="f-mes"><option value="">Todos</option></select>
     </div>
     <div id="pivot-principal"></div>
+
+    <div id="fichas" class="seccion-oculta">
+      <div class="pivot-titulo">Carga manual de movimientos</div>
+      <p class="nota-mantenedor">Para gastos que no tienen documento en las carpetas, o cuyo PDF está escaneado y no se puede leer. Cada ficha se suma al reporte igual que un documento leído y queda guardada en este navegador.</p>
+      <form id="form-ficha" class="ficha">
+        <input type="hidden" id="fi-id">
+        <div class="ficha-grid">
+          <label>Fecha del gasto
+            <div class="fila-mes-anio">
+              <select id="fi-mes" required></select>
+              <input type="number" id="fi-anio" placeholder="2026" min="2020" max="2100" required>
+            </div>
+          </label>
+          <label>Nombre del solicitante
+            <input type="text" id="fi-solicitante" placeholder="Ej: Rocío Cerda" required>
+          </label>
+          <label>Proveedor
+            <input type="text" id="fi-proveedor" list="lista-proveedores" placeholder="Ej: Aninat" required>
+            <datalist id="lista-proveedores"></datalist>
+          </label>
+          <label>País
+            <select id="fi-pais" required></select>
+          </label>
+          <label>Tipo de concepto
+            <select id="fi-concepto" required></select>
+          </label>
+          <label>Categoría / partida
+            <input type="text" id="fi-categoria" list="lista-categorias" placeholder="Ej: Honorarios varios">
+            <datalist id="lista-categorias"></datalist>
+          </label>
+          <label>Moneda de origen
+            <select id="fi-moneda" required></select>
+          </label>
+          <label>Monto en moneda de origen
+            <input type="number" id="fi-monto" step="any" min="0" placeholder="0" required>
+          </label>
+          <label>Monto en CLP
+            <input type="number" id="fi-clp" step="1" min="0" placeholder="se calcula solo">
+            <span class="ayuda" id="fi-ayuda-clp"></span>
+          </label>
+          <label>Equivalente en USD
+            <input type="text" id="fi-usd" readonly tabindex="-1">
+            <span class="ayuda">calculado con el tipo de cambio de Parámetros</span>
+          </label>
+          <label class="ancho-total">Descripción / referencia
+            <input type="text" id="fi-detalle" placeholder="Ej: Factura 5763 — asesoría marzo">
+          </label>
+        </div>
+        <div class="ficha-acciones">
+          <button type="submit" class="boton" id="fi-guardar">Agregar al reporte</button>
+          <button type="button" class="boton secundario" id="fi-limpiar">Limpiar</button>
+          <span class="ficha-msg" id="fi-msg"></span>
+          <span class="ficha-espaciador"></span>
+          <button type="button" class="boton secundario" id="fi-exportar">⬇ Exportar fichas</button>
+          <button type="button" class="boton secundario" id="fi-importar-btn">⬆ Importar fichas</button>
+          <input type="file" id="fi-importar" accept="application/json" hidden>
+        </div>
+      </form>
+      <div class="pivot-scroll" id="tabla-fichas"></div>
+    </div>
+
     <div id="mantenedor" class="seccion-oculta">
       <div class="pivot-titulo">Mantenedor de clasificación (Gasto / Honorario / Juicios)</div>
       <div class="mantenedor-barra">
