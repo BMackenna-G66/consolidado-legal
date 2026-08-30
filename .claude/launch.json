@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "consolidado-legal",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["servidor.py"],
+      "port": 4173
+    }
+  ]
+}

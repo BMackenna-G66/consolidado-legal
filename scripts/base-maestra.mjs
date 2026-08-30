@@ -3,30 +3,34 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const XLSX = require('xlsx');
 const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
 pdfjs.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/legacy/build/pdf.worker.js');
 
-// Raíz del proyecto (este script vive en scripts/)
-const APP = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+// Raíz del proyecto (este script vive en scripts/); fileURLToPath aguanta
+// espacios en la ruta, .pathname los dejaría percent-encoded.
+const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const mod = f => pathToFileURL(path.join(APP, f)).href;
 
 // Shims: los módulos de la app esperan un navegador
 globalThis.window = { XLSX, pdfjsLib: pdfjs };
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 
-const { procesarArchivo, deduplicar, aplicarBaseHistorica, enriquecerSolicitantes } = await import(path.join(APP, 'parsers.js'));
-const { DEFAULT_PARAMS, MESES } = await import(path.join(APP, 'config.js'));
-const { extraerDetalle } = await import(path.join(APP, 'detalle.js'));
+const { procesarArchivo, deduplicar, aplicarBaseHistorica, enriquecerSolicitantes } = await import(mod('parsers.js'));
+const { DEFAULT_PARAMS, MESES } = await import(mod('config.js'));
+const { extraerDetalle } = await import(mod('detalle.js'));
 
-const manifest = JSON.parse(fs.readFileSync(path.join(APP, 'datos/manifest.json'), 'utf8'));
+const DATOS = process.env.DATOS || path.join(APP, 'datos');
+const manifest = JSON.parse(fs.readFileSync(path.join(DATOS, 'manifest.json'), 'utf8'));
 const params = { ...DEFAULT_PARAMS };
 
 const resultados = [];
 const detalle = [];
 for (const m of manifest) {
-  const full = path.join(APP, 'datos', m.archivo);
+  const full = path.join(DATOS, m.archivo);
   const buf = fs.readFileSync(full);
   const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   const nombre = m.archivo.split('/').pop();
@@ -102,7 +106,8 @@ const filasDetalle = detalle.map(d => ({
   'Periodo': (d.anio && d.mes) ? `${d.anio}-${String(d.mes).padStart(2, '0')}` : '',
   'Fecha': d.fecha || '', 'Año': d.anio ?? '', 'Mes': d.mes ?? '', 'Día': d.dia ?? '',
   'Carpeta proveedor': d.carpetaProveedor || '', 'Carpeta mes': d.carpetaMes || '',
-  'Categoría': d.categoria || '', 'Solicitante': d.solicitante || '',
+  'Categoría': d.categoria || '', 'Concepto del trabajo': d.concepto || '',
+  'Solicitante': d.solicitante || '',
   'Profesional / abogado': d.profesional || '',
   'Descripción del trabajo': d.descripcion || '',
   'Horas': d.horas || '', 'Tarifa': d.tarifa ?? '',

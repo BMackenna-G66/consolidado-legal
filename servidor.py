@@ -17,4 +17,5 @@ class SinCache(SimpleHTTPRequestHandler):
 
 
 puerto = int(sys.argv[1]) if len(sys.argv) > 1 else 4173
-ThreadingHTTPServer(('127.0.0.1', puerto), partial(SinCache, directory='.')).serve_forever()
+carpeta = sys.argv[2] if len(sys.argv) > 2 else '.'
+ThreadingHTTPServer(('127.0.0.1', puerto), partial(SinCache, directory=carpeta)).serve_forever()

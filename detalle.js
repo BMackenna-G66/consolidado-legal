@@ -31,6 +31,28 @@ export async function lineasPdf(arrayBuffer) {
 
 const RE_HORAS = /(\d{1,4}):([0-5]\d)$/;
 
+// Concepto del trabajo según la descripción de la línea. Los anexos de Moraga
+// agrupan todo bajo "Asuntos generales", así que el tipo real de trabajo
+// (laboral, societario, juicios…) hay que deducirlo del texto de cada línea.
+// El orden importa: gana el primer patrón que calza.
+export const CONCEPTOS_TRABAJO = [
+  ['Asesoría migratoria', /\bvisas?\b|migraci|migrator|nacionalizaci/i],
+  ['Marcas y dominios', /\bmarcas?\b|dominios?\b|inapi|propiedad intelectual/i],
+  ['Asesoría tributaria', /\bdj\s?\d{3,4}\b|declaraci[oó]n jurada|tributari|impuesto|\btgr\b|declaraci[oó]n de renta/i],
+  ['Trámites notariales y publicaciones', /notar[ií]a|notarial|protocolizaci|legalizaci|apostilla|diario oficial|zofri/i],
+  ['Societario y directorios', /directorio|\bsod\b|\bsed\b|\bjoa\b|\bjea\b|junta|accionist|accionari|\bacciones\b|\bactas?\b|memoria anual|gerente general|societari|corporativ|cap table|escritura p[uú]blica|estatuto|\bpoder\b|sociedad/i],
+  ['Regulatorio (CMF / UAF)', /\bcmf\b|\buaf\b|sernac|regulatori|circular|hecho esencial|oficio reservado|gambling|industrias? (de riesgo|grises)|fintech|derecho (de )?petici/i],
+  ['Juicios y litigios', /juicios?\b|\bjpl\b|tribunal|audiencia|expediente|alegato|demanda|querell|sentencia|fraude|\bcausas?\b|monitorio|avenimiento|\breceptor\b|fiscal[ií]a|litigio|absoluci[oó]n|procesal|transacci|judicial/i],
+  ['Asesoría laboral', /despidos?\b|desvinculaci|finiquito|carta oferta|ley karin|trabajador|postulante|reclutamiento|previsional|cotizaci|laboral|\bdicom\b/i],
+  ['Proyectos y contratos', /m&a|everest|contratos?\b|contrapropuesta|opini[oó]n legal|due diligence|cambio de control|\bnda\b|side letter|itau|nevasa|estructura b2b|grow or go|recaudaci[oó]n/i],
+];
+
+export function conceptoDeTrabajo(texto) {
+  const t = String(texto || '');
+  for (const [nombre, re] of CONCEPTOS_TRABAJO) if (re.test(t)) return nombre;
+  return 'Asesoría general';
+}
+
 // Las duraciones de Excel llegan como Date (0.0104 de día = 00:15); se formatean
 function limpiar(t) {
   return String(t ?? '').replace(/_x000d_/gi, ' ').replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -58,7 +80,13 @@ export async function detalleMoraga(arrayBuffer, meta) {
   if (inicio < 0) return [];               // solo trae el resumen, no hay detalle
   const filas = [];
   let categoria = '', solicitante = '', profesional = '', vistoSolicitante = false, pendiente = null;
-  const cerrar = () => { if (pendiente && pendiente.descripcion) filas.push(pendiente); pendiente = null; };
+  const cerrar = () => {
+    if (pendiente && pendiente.descripcion) {
+      pendiente.concepto = conceptoDeTrabajo(pendiente.descripcion);
+      filas.push(pendiente);
+    }
+    pendiente = null;
+  };
 
   for (const { texto } of lineas.slice(inicio + 1)) {
     if (/^Total general/i.test(texto) || /^P[áa]gina/i.test(texto) || /moragaycia\.cl/i.test(texto)
@@ -72,7 +100,9 @@ export async function detalleMoraga(arrayBuffer, meta) {
 
     if (/^Solicitad[oa]\s+por\s+/i.test(sinHoras) || /^Sin\s+Solicitante$/i.test(sinHoras)) {
       cerrar();
-      solicitante = /^Sin/i.test(sinHoras) ? '' : sinHoras.replace(/^Solicitad[oa]\s+por\s+/i, '').trim();
+      // "AMF - Álvaro Moraga Fritz" → "Álvaro Moraga Fritz" (iniciales de cortesía)
+      solicitante = /^Sin/i.test(sinHoras) ? ''
+        : sinHoras.replace(/^Solicitad[oa]\s+por\s+/i, '').replace(/^[A-ZÁÉÍÓÚÑ]{2,4}\s*-\s*/, '').trim();
       profesional = ''; vistoSolicitante = true;
       continue;
     }

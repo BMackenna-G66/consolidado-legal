@@ -3,6 +3,7 @@
 // Registro: { dia, mes, anio, pais, proveedor, categoria, concepto, moneda, montoOrigen, clp, archivo, detalle }
 
 import { fechaDeRuta, parseFechaTexto, numeroCL, numeroUS, proveedorDeRuta, montosDelTexto, monedaDelTexto } from './config.js';
+import { detalleMoraga } from './detalle.js';
 
 const XLSX = window.XLSX;
 const pdfjsLib = window.pdfjsLib;
@@ -67,6 +68,34 @@ function solicitanteResumen(lista) {
   if (!lista.length) return '';
   if (lista.length === 1) return lista[0];
   return `Varios (${lista.length})`;
+}
+
+// Grupos (concepto del trabajo, solicitante) del DETALLE TRABAJOS de un anexo
+// de Moraga, con las horas de cada grupo: es la pauta para repartir la boleta
+// del mes, que trae un solo monto sin desglose.
+async function gruposDelAnexo(arrayBuffer) {
+  const grupos = new Map();
+  for (const l of await detalleMoraga(arrayBuffer, {})) {
+    const k = `${l.concepto}|${l.solicitante || ''}`;
+    const g = grupos.get(k) || { concepto: l.concepto, solicitante: l.solicitante || '', minutos: 0, lineas: 0 };
+    const m = String(l.horas || '').match(/^(\d{1,4}):([0-5]\d)$/);
+    if (m) g.minutos += +m[1] * 60 + +m[2];
+    g.lineas++;
+    grupos.set(k, g);
+  }
+  return [...grupos.values()];
+}
+
+// Reparte un total en partes proporcionales a los pesos cuidando que la suma
+// dé exactamente el total: el residuo del redondeo se carga a la parte mayor.
+function repartir(total, pesos, dec) {
+  const W = pesos.reduce((s, w) => s + w, 0) || 1;
+  const f = 10 ** dec;
+  const partes = pesos.map(w => Math.round(total * w / W * f) / f);
+  const dif = Math.round((total - partes.reduce((s, p) => s + p, 0)) * f) / f;
+  const iMax = partes.indexOf(Math.max(...partes));
+  partes[iMax] = Math.round((partes[iMax] + dif) * f) / f;
+  return partes;
 }
 
 function fechaDoc(texto, ruta, etiqueta) {
@@ -136,7 +165,9 @@ export async function parseMoragaNCCL(buf, ruta, params, archivo) {
     if (todos.length) uf = Math.max(...todos);
   }
   const solicitantesAnexo = solicitantesDelTexto(texto);
-  if (!uf) return { registros: [], estado: 'omitido', solicitantesAnexo,
+  let gruposAnexo = [];
+  try { gruposAnexo = await gruposDelAnexo(buf); } catch { /* anexo sin detalle legible */ }
+  if (!uf) return { registros: [], estado: 'omitido', solicitantesAnexo, gruposAnexo,
     nota: 'Nota de cobro sin monto (solo detalle de horas) — el cobro lo aporta la boleta del mes'
       + (solicitantesAnexo.length ? `; aporta ${solicitantesAnexo.length} solicitante(s)` : '') };
   // La carpeta del mes manda: las descripciones internas traen fechas de otros meses.
@@ -154,7 +185,7 @@ export async function parseMoragaNCCL(buf, ruta, params, archivo) {
       solicitante: solicitanteResumen(solicitantesDelTexto(texto)),
       montoOrigen: uf, clp, archivo, detalle: `Nota de cobro ${uf} UF`,
     }],
-    solicitantesAnexo,
+    solicitantesAnexo, gruposAnexo,
     estado: 'supuesto',
     nota: `UF ${uf} × $${fmt(params.UF_CLP)} = ${fmt(clp)} (valor UF configurable)`,
   };
@@ -664,12 +695,13 @@ export async function procesarArchivo({ nombre, ruta, arrayBuffer }, params) {
     let r;
     // Anexos de horas sin montos (HH…, "detalle cobro"): el monto lo aporta la boleta del mes
     if (ext === 'pdf' && (/^hh\b/i.test(nombre) || /detalle\s+de?\s*cobro/i.test(nombre)) && !/^bh/i.test(nombre)) {
-      // No trae montos, pero sí los solicitantes del mes: se guardan para enriquecer
-      // los cobros de la misma carpeta.
-      let solicitantesAnexo = [];
+      // No trae montos, pero sí el detalle del mes (conceptos, solicitantes y
+      // horas): se guarda para repartir los cobros de la misma carpeta.
+      let solicitantesAnexo = [], gruposAnexo = [];
       try { solicitantesAnexo = solicitantesDelTexto(await textoPdf(arrayBuffer)); } catch { /* anexo ilegible */ }
+      try { gruposAnexo = await gruposDelAnexo(arrayBuffer); } catch { /* anexo sin detalle legible */ }
       return {
-        ...base, estado: 'omitido', registros: [], solicitantesAnexo,
+        ...base, estado: 'omitido', registros: [], solicitantesAnexo, gruposAnexo,
         nota: 'Anexo de detalle de horas (sin montos) — el cobro lo aporta la boleta o factura del mes'
           + (solicitantesAnexo.length ? `; aporta ${solicitantesAnexo.length} solicitante(s)` : ''),
       };
@@ -704,25 +736,74 @@ export async function procesarArchivo({ nombre, ruta, arrayBuffer }, params) {
   }
 }
 
-// Los anexos de detalle traen los solicitantes del mes pero no los montos; las
-// boletas traen el monto pero no el solicitante. Se cruzan por carpeta (= mes).
+// Los anexos de detalle traen el desglose del mes (concepto del trabajo,
+// solicitante y horas) pero no los montos; las boletas traen el monto pero sin
+// desglose. Se cruzan por carpeta (= mes): el monto de la boleta se reparte
+// entre los grupos del anexo en proporción a las horas trabajadas.
 export function enriquecerSolicitantes(resultados) {
-  const porCarpeta = new Map();
   const carpetaDe = res => String(res.ruta || '').split('/').slice(0, -1).join('/');
+  const porCarpeta = new Map();
+  const gruposPorCarpeta = new Map();
   for (const res of resultados) {
-    if (!res.solicitantesAnexo || !res.solicitantesAnexo.length) continue;
-    const set = porCarpeta.get(carpetaDe(res)) || new Set();
-    res.solicitantesAnexo.forEach(s => set.add(s));
-    porCarpeta.set(carpetaDe(res), set);
+    const carpeta = carpetaDe(res);
+    if (res.solicitantesAnexo && res.solicitantesAnexo.length) {
+      const set = porCarpeta.get(carpeta) || new Set();
+      res.solicitantesAnexo.forEach(s => set.add(s));
+      porCarpeta.set(carpeta, set);
+    }
+    if (res.gruposAnexo && res.gruposAnexo.length) {
+      const m = gruposPorCarpeta.get(carpeta) || new Map();
+      for (const g of res.gruposAnexo) {
+        const k = `${g.concepto}|${g.solicitante}`;
+        const acc = m.get(k) || { concepto: g.concepto, solicitante: g.solicitante, minutos: 0, lineas: 0 };
+        acc.minutos += g.minutos;
+        acc.lineas += g.lineas;
+        m.set(k, acc);
+      }
+      gruposPorCarpeta.set(carpeta, m);
+    }
   }
-  if (!porCarpeta.size) return resultados;
+
+  // 1) Prorrateo de las boletas/notas de cobro de Moraga por las horas del anexo:
+  //    cada grupo (concepto, solicitante) recibe su parte proporcional del monto.
+  const hh = min => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
+  for (const res of resultados) {
+    if (!res.registros || !res.registros.length) continue;
+    if (!/^bh|ncc/i.test(res.archivo || '')) continue; // solo la boleta o nota de cobro del mes
+    const grupos = [...(gruposPorCarpeta.get(carpetaDe(res)) || new Map()).values()];
+    if (!grupos.length) continue;
+    const pesos = grupos.map(g => g.minutos || 1); // una línea sin horas pesa 1 minuto
+    const totalMin = pesos.reduce((s, w) => s + w, 0);
+    let repartidos = 0;
+    res.registros = res.registros.flatMap(r => {
+      if (r.proveedor !== 'Alvaro Moraga' || r.concepto !== 'Honorarios') return [r];
+      repartidos++;
+      const clps = repartir(r.clp, pesos, 0);
+      const origenes = r.moneda === 'CLP' ? clps : repartir(r.montoOrigen, pesos, 2);
+      return grupos.map((g, i) => ({
+        ...r,
+        categoria: g.concepto,
+        solicitante: g.solicitante,
+        montoOrigen: origenes[i],
+        clp: clps[i],
+        detalle: `${r.detalle} — prorrateo por horas del anexo (${hh(pesos[i])} de ${hh(totalMin)} h)`,
+        prorrateo: true,
+      }));
+    });
+    if (repartidos) {
+      res.nota = (res.nota || '')
+        + ` · monto repartido por horas del anexo en ${grupos.length} grupo(s) de concepto y solicitante`;
+    }
+  }
+
+  // 2) Respaldo: registros sin desglose heredan los nombres sueltos del anexo.
   for (const res of resultados) {
     if (!res.registros || !res.registros.length) continue;
     const lista = [...(porCarpeta.get(carpetaDe(res)) || [])];
     if (!lista.length) continue;
     let n = 0;
     for (const r of res.registros) {
-      if (r.solicitante) continue;
+      if (r.prorrateo || r.solicitante) continue;
       r.solicitante = solicitanteResumen(lista);
       r.solicitantesLista = lista;
       n++;

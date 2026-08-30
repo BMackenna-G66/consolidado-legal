@@ -5,18 +5,21 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const require = createRequire(import.meta.url);
 const XLSX = require('xlsx');
 const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
 pdfjs.GlobalWorkerOptions.workerSrc = require.resolve('pdfjs-dist/legacy/build/pdf.worker.js');
 
-const APP = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+// fileURLToPath aguanta espacios en la ruta, .pathname los dejaría percent-encoded
+const APP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const mod = f => pathToFileURL(path.join(APP, f)).href;
 globalThis.window = { XLSX, pdfjsLib: pdfjs };
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 
-const { procesarArchivo, deduplicar, aplicarBaseHistorica, enriquecerSolicitantes } = await import(path.join(APP, 'parsers.js'));
-const { DEFAULT_PARAMS, MESES } = await import(path.join(APP, 'config.js'));
+const { procesarArchivo, deduplicar, aplicarBaseHistorica, enriquecerSolicitantes } = await import(mod('parsers.js'));
+const { DEFAULT_PARAMS, MESES } = await import(mod('config.js'));
 
 const DATOS = process.env.DATOS || path.join(APP, 'datos');
 const manifest = JSON.parse(fs.readFileSync(path.join(DATOS, 'manifest.json'), 'utf8'));
@@ -57,7 +60,7 @@ const archivos = resultados.map(res => ({
   nota: res.nota || '',
 }));
 
-const { generarHTMLCompartir } = await import(path.join(APP, 'compartir.js'));
+const { generarHTMLCompartir } = await import(mod('compartir.js'));
 const html = generarHTMLCompartir({ registros, archivos, params });
 
 const salida = process.argv[2] || path.join(APP, 'Reporte Consolidado Legal.html');
