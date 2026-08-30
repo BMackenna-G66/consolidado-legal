@@ -440,6 +440,73 @@ export function parseTabularGenerico(buf, ruta, params, archivo, proveedor) {
   return { registros, estado: 'ok', nota: `${registros.length} filas (${moneda}→CLP ${tasa})` };
 }
 
+
+// El proveedor de cada fila histórica se recupera cruzando su monto contra las
+// hojas por proveedor del MISMO libro (de donde nació la Base resumen): si un
+// monto aparece en la hoja de Moraga, esa fila es de Moraga. Para Argentina y
+// Colombia el proveedor viene por fila en su propia hoja.
+function atribuidorDeProveedores(wb) {
+  const HOJAS = [
+    { re: /moraga/i,            pais: 'Chile',    prov: 'Alvaro Moraga' },
+    { re: /sensus/i,            pais: 'Chile',    prov: 'Sensus Legis' },
+    { re: /dento/i,             pais: 'Chile',    prov: 'Dentons' },
+    { re: /aninat/i,            pais: 'Chile',    prov: 'Aninat' },
+    { re: /chile\s*-\s*otros/i, pais: 'Chile',    prov: 'Juicios y contingencias' },
+    { re: /andes/i,             pais: 'Perú',     prov: 'Andes Latam' },
+    { re: /niubox/i,            pais: 'Perú',     prov: 'NiuBox' },
+    { re: /per[úu]\s*-\s*otros/i, pais: 'Perú',  prov: 'Investigaciones y juicios' },
+    { re: /colombia\s*-\s*externo/i, pais: 'Colombia', prov: 'Requerimientos externos' },
+  ];
+  const porMonto = new Map();
+  const add = (pais, v, prov) => {
+    if (!isFinite(v) || v < 900 || v > 5e8) return;
+    const k = `${pais}|${Math.round(v)}`;
+    if (!porMonto.has(k)) porMonto.set(k, new Set());
+    porMonto.get(k).add(prov);
+  };
+  const arregla = (t) => {
+    t = String(t).trim().split(/\s+-\s+/)[0].trim();
+    if (!t) return '';
+    return t === t.toUpperCase()
+      ? t.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())
+      : t;
+  };
+  for (const nombre of wb.SheetNames) {
+    const filas = filasDeHoja(wb.Sheets[nombre]);
+    const cfg = HOJAS.find(h => h.re.test(nombre));
+    if (cfg) {
+      for (const fila of filas) for (const c of (fila || [])) {
+        if (typeof c === 'number') add(cfg.pais, c, cfg.prov);
+      }
+      continue;
+    }
+    if (/argentina/i.test(nombre) || /colombia\s*-\s*interno/i.test(nombre)) {
+      const pais = /argentina/i.test(nombre) ? 'Argentina' : 'Colombia';
+      const hIdx = filas.findIndex(r => r && r.some(c => /proveedor|carlos gomez/i.test(String(c ?? ''))));
+      if (hIdx < 0) continue;
+      const provCol = filas[hIdx].findIndex(c => /proveedor|carlos gomez/i.test(String(c ?? '')));
+      for (const fila of filas.slice(hIdx + 1)) {
+        const prov = arregla(fila?.[provCol] ?? '');
+        if (!prov) continue;
+        for (const c of fila) if (typeof c === 'number') add(pais, c, prov);
+      }
+    }
+  }
+  return (pais, clp, categoria) => {
+    const set = porMonto.get(`${pais}|${Math.round(clp)}`);
+    if (set && set.size === 1) return [...set][0];
+    const cat = String(categoria || '');
+    if (pais === 'Chile') {
+      if (/20\.?009/i.test(cat)) return 'Sensus Legis';
+      if (/stablecoin|cuenta remunerada|licencia fintech/i.test(cat)) return 'Dentons';
+      if (/asesor[ií]a (profesional|legal)|galleguillos|moraga/i.test(cat)) return 'Alvaro Moraga';
+    }
+    if (set && set.size > 1) return null;
+    if (pais === 'Perú' && !/juicio|investigaci/i.test(cat)) return 'Andes Latam';
+    return null;
+  };
+}
+
 // Base histórica: hoja "Base resumen" del Consolidado Paises.xlsx.
 // Replica la lógica del Excel: esta base plana alimenta las tablas resumen.
 // Los valores ya reportados ahí se respetan tal cual (no se recalculan).
@@ -459,6 +526,8 @@ export function parseBaseResumen(buf, ruta, params, archivo) {
     concepto: H.findIndex(h => /^Concepto$/i.test(h)),
   };
   if (col.pais < 0 || col.clp < 0) return { registros: [], estado: 'error', nota: 'La hoja "Base resumen" no tiene las columnas esperadas (Pais, CLP IVA)' };
+  const atribuir = atribuidorDeProveedores(wb);
+  let atribuidos = 0;
   const registros = [];
   for (const r of filas.slice(1)) {
     const clp = numeroUS(r[col.clp]);
@@ -473,13 +542,19 @@ export function parseBaseResumen(buf, ruta, params, archivo) {
       dia: esFecha ? f.getDate() : 1,
       mes: numeroUS(r[col.mes]) || (esFecha ? f.getMonth() + 1 : null),
       anio: esFecha ? f.getFullYear() : null,
-      pais: String(pais).trim(), proveedor: 'Base histórica (Excel)',
+      pais: String(pais).trim(),
+      proveedor: (() => {
+        const p = atribuir(String(pais).trim(), clp, r[col.categoria]);
+        if (p) atribuidos++;
+        return p || 'Base histórica (Excel)';
+      })(),
       categoria: String(r[col.categoria] ?? 'Sin categoría').trim(),
       concepto, moneda: 'CLP', montoOrigen: clp, clp: Math.round(clp),
       archivo, detalle: '', fuente: 'base',
     });
   }
-  return { registros, estado: 'ok', nota: `${registros.length} movimientos ya reportados — se mantienen tal cual`, fuente: 'base' };
+  return { registros, estado: 'ok', fuente: 'base',
+    nota: `${registros.length} movimientos históricos; proveedor identificado en ${atribuidos} cruzando las hojas del propio Excel` };
 }
 
 // Los documentos de las carpetas son la fuente principal: traen proveedor,
