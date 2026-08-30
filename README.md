@@ -19,11 +19,11 @@ Todo el procesamiento ocurre en el navegador; ningún documento sale hacia servi
 
 ## Cómo se usa (100% web)
 
-**Abre https://bmackenna-g66.github.io/consolidado-legal/ y pulsa *Conectar con Microsoft*.** La app lee los documentos directamente desde SharePoint en ese momento y arma el reporte. No hay carpeta que sincronizar, ni copias locales que se atrasen, ni nada que mantener: si un encargado sube una factura, aparece en la siguiente carga.
+Abre **https://bmackenna-g66.github.io/consolidado-legal/** y elige cómo cargar los datos:
 
-Requisito único: el **Application (client) ID** del registro de Azure AD (ver más abajo). La app lo pide la primera vez y lo guarda en el navegador de cada persona. El inicio de sesión ocurre en la ventana oficial de Microsoft — la app nunca ve contraseñas, solo recibe un permiso de lectura temporal.
+**A. ZIP de SharePoint (sin trámites, funciona hoy).** En SharePoint: seleccionar la carpeta → *Descargar* (baja un ZIP) → en la app, *Cargar ZIP…* con ese archivo tal cual. El reporte se arma completo. Para compartirlo, el botón **📤 Reporte para compartir** genera un HTML autocontenido con los datos adentro: se sube a la carpeta de SharePoint y se comparte su vínculo — quien tenga acceso lo abre con doble clic, sin login ni configuración, con los permisos de SharePoint.
 
-> **Alternativa mientras no exista el clientId:** el botón *Elegir carpeta…* permite generar el reporte desde una carpeta descargada de SharePoint (o su ZIP descomprimido). Es un camino de emergencia, no el flujo normal.
+**B. SharePoint en vivo (cuando exista el registro de Azure AD).** *Conectar con Microsoft* lee las carpetas en el momento, sin ZIP. Requiere el Application (client) ID descrito más abajo; la app nunca ve contraseñas, solo recibe un permiso de lectura temporal. No es requisito para el flujo A.
 
 ## Ejecutar en local (solo desarrollo)
 

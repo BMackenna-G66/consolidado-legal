@@ -185,3 +185,57 @@ export async function leerSharePoint(onProgreso) {
   await recorrer(raiz.id, '');
   return archivos;
 }
+
+// ---------- ZIP de SharePoint (botón "Descargar" de la carpeta) ----------
+// Lee el ZIP directamente en el navegador, sin descomprimirlo a mano.
+
+export async function leerZip(file, onProgreso) {
+  onProgreso?.('Leyendo ZIP…');
+  const buf = new Uint8Array(await file.arrayBuffer());
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  // End of central directory
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= Math.max(0, buf.length - 22 - 65536); i--) {
+    if (buf[i] === 0x50 && buf[i+1] === 0x4b && buf[i+2] === 0x05 && buf[i+3] === 0x06) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('El archivo no es un ZIP válido');
+  const n = dv.getUint16(eocd + 10, true);
+  let off = dv.getUint32(eocd + 16, true);
+  const entradas = [];
+  const dec = new TextDecoder();
+  for (let k = 0; k < n; k++) {
+    const nameLen = dv.getUint16(off + 28, true);
+    const extraLen = dv.getUint16(off + 30, true);
+    const comLen = dv.getUint16(off + 32, true);
+    entradas.push({
+      name: dec.decode(buf.subarray(off + 46, off + 46 + nameLen)),
+      method: dv.getUint16(off + 10, true),
+      compSize: dv.getUint32(off + 20, true),
+      lho: dv.getUint32(off + 42, true),
+    });
+    off += 46 + nameLen + extraLen + comLen;
+  }
+  const docs = entradas.filter(e => !e.name.endsWith('/') && EXTENSIONES.test(e.name)
+    && !e.name.includes('__MACOSX') && !e.name.split('/').pop().startsWith('~$'));
+  if (!docs.length) throw new Error('El ZIP no contiene PDF ni Excel');
+  // Si todo cuelga de una carpeta raíz común (el nombre de la carpeta descargada), se quita
+  const raices = new Set(docs.map(e => e.name.split('/')[0]));
+  const raiz = (raices.size === 1 && docs[0].name.includes('/')) ? [...raices][0] + '/' : '';
+  const archivos = [];
+  let i = 0;
+  for (const e of docs) {
+    onProgreso?.(`Extrayendo ${++i}/${docs.length}: ${e.name.split('/').pop()}`);
+    const nl = dv.getUint16(e.lho + 26, true), el = dv.getUint16(e.lho + 28, true);
+    const inicio = e.lho + 30 + nl + el;
+    const comp = buf.subarray(inicio, inicio + e.compSize);
+    let data;
+    if (e.method === 0) data = comp.slice();
+    else if (e.method === 8) {
+      const ds = new DecompressionStream('deflate-raw');
+      data = new Uint8Array(await new Response(new Blob([comp]).stream().pipeThrough(ds)).arrayBuffer());
+    } else continue;
+    const rel = e.name.startsWith(raiz) ? e.name.slice(raiz.length) : e.name;
+    archivos.push({ nombre: rel.split('/').pop(), ruta: '/' + rel, arrayBuffer: data.buffer });
+  }
+  return archivos;
+}

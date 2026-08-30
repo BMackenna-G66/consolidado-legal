@@ -130,6 +130,7 @@
     <button class="boton secundario" id="btn-params" hidden>⚙ Parámetros</button>
     <button class="boton secundario" id="btn-mantenedor" hidden>🗂 Mantenedor</button>
     <button class="boton secundario" id="btn-fichas" hidden>➕ Carga manual</button>
+    <button class="boton" id="btn-compartir" hidden>📤 Reporte para compartir</button>
     <button class="boton secundario" id="btn-maestra" hidden>⬇ Base maestra Excel</button>
     <button class="boton secundario" id="btn-csv" hidden>⬇ Exportar CSV</button>
     <button class="boton secundario" id="btn-recargar" hidden>↺ Nueva carga</button>
@@ -139,25 +140,28 @@
   <section id="portada">
     <h2>Generar reporte consolidado</h2>
     <div id="aviso-sin-datos" hidden>
-      <b>Conecta con SharePoint para ver el reporte en vivo.</b> La aplicación lee los documentos
-      directamente desde la carpeta <code>Consolidado Cobros - Pagos [Compliance]</code>: no guarda
-      copias ni depende de que nadie sincronice nada.
-      <br>La primera vez pide el <b>Application (client) ID</b> del registro de Azure AD (lo entrega TI,
-      ver <code>SOLICITUD-TI.md</code>). Después basta iniciar sesión con tu cuenta Global66 — la app
-      nunca ve tu contraseña, solo recibe un permiso de lectura temporal.
+      <b>Para ver el reporte con datos: carga el ZIP de SharePoint.</b>
+      En SharePoint abre <code>Consolidado Cobros - Pagos [Compliance]</code>, selecciona todo →
+      <b>Descargar</b>, y aquí pulsa <b>“Cargar ZIP…”</b> con ese archivo. El reporte se arma completo
+      y con <b>“📤 Reporte para compartir”</b> generas un HTML con los datos adentro para subir a
+      SharePoint y compartir su vínculo con el equipo.
+      <br>El modo “SharePoint en vivo” (sin ZIP) queda disponible para cuando exista el registro de
+      Azure AD; no es requisito para nada de lo anterior.
       <div id="detalle-error" hidden></div>
     </div>
     <p>La aplicación recorre la carpeta <b>Consolidado Cobros - Pagos [Compliance]</b>, interpreta los documentos de cada proveedor (boletas, facturas, notas de cobro y minutas) y construye el resumen de gastos por país y mes, en CLP. Nada se sube a servidores externos: todo se procesa en tu navegador.</p>
     <div class="opciones-carga">
-      <div class="opcion principal">
+      <div class="opcion principal" id="card-sp">
         <h3>☁️ SharePoint en vivo</h3>
         <p>Inicia sesión con tu cuenta Global66 y la app lee las carpetas directamente desde SharePoint, en el momento. Sin copias locales ni sincronizaciones que se atrasen.</p>
         <button class="boton" id="btn-sharepoint">Conectar con Microsoft</button>
       </div>
-      <div class="opcion secundaria">
-        <h3>📁 Carpeta manual <span class="etiqueta-alt">alternativa</span></h3>
-        <p>Solo si el modo en línea aún no está habilitado: selecciona una carpeta descargada de SharePoint (o su ZIP descomprimido) para generar el reporte esta vez.</p>
-        <button class="boton secundario" id="btn-local">Elegir carpeta…</button>
+      <div class="opcion secundaria" id="card-manual">
+        <h3>📁 ZIP o carpeta de SharePoint</h3>
+        <p>Descarga la carpeta desde SharePoint (botón <b>Descargar</b> → baja un ZIP) y cárgala aquí tal cual. Sin trámites ni configuración.</p>
+        <button class="boton" id="btn-zip">Cargar ZIP…</button>
+        <button class="boton secundario" id="btn-local" style="margin-left:8px">Elegir carpeta…</button>
+        <input type="file" id="input-zip" accept=".zip" hidden>
         <button class="boton secundario" id="btn-actualizar" hidden style="margin-left:8px"></button>
         <input type="file" id="input-carpeta" webkitdirectory multiple hidden>
       </div>

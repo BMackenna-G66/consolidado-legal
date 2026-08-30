@@ -2,7 +2,8 @@
 
 import { DEFAULT_PARAMS, MESES } from './config.js';
 import { procesarArchivo, deduplicar, aplicarBaseHistorica, enriquecerSolicitantes } from './parsers.js';
-import { leerCarpetaLocal, leerSharePoint, graphDisponible, soportaFSA, elegirCarpetaFSA, leerCarpetaRecordada, carpetaGuardada, setClientId } from './fuentes.js';
+import { leerCarpetaLocal, leerSharePoint, graphDisponible, soportaFSA, elegirCarpetaFSA, leerCarpetaRecordada, carpetaGuardada, setClientId, leerZip } from './fuentes.js';
+import { generarHTMLCompartir } from './compartir.js';
 import { construirPivot, renderPivot, renderResumenTarjetas, exportarCSV, exportarBaseMaestra, AGRUPACIONES } from './reporte.js';
 import { clasificar, overrides, setOverride, CONCEPTOS, clasificarConIA, apiKeyGemini, setApiKeyGemini, normalizaCat } from './clasificador.js';
 import { fichas, guardarFicha, borrarFicha, nuevoId, calcularMontos, resultadoManual,
@@ -34,6 +35,16 @@ $id('btn-local').addEventListener('click', async () => {
     progreso(e.name === 'AbortError' ? '' : '⚠ ' + (e.message || e));
   }
 });
+$id('btn-zip').addEventListener('click', () => $id('input-zip').click());
+$id('input-zip').addEventListener('change', async e => {
+  if (!e.target.files.length) return;
+  try {
+    archivosCrudos = await leerZip(e.target.files[0], progreso);
+    await procesarYRender();
+  } catch (err) { progreso('⚠ ' + (err.message || err)); }
+  e.target.value = '';
+});
+
 $id('input-carpeta').addEventListener('change', async e => {
   if (!e.target.files.length) return;
   progreso('Leyendo carpeta…');
@@ -89,6 +100,38 @@ $id('btn-recargar').addEventListener('click', () => {
   progreso('');
 });
 $id('btn-csv').addEventListener('click', () => exportarCSV(registrosFiltrados()));
+$id('btn-compartir').addEventListener('click', () => {
+  const params = paramsActuales();
+  const registros = [];
+  for (const res of resultados) {
+    const partes = String(res.ruta || '').split('/').filter(Boolean);
+    for (const r of (res.registros || [])) {
+      registros.push({
+        anio: r.anio, mes: r.mes, dia: r.dia, pais: r.pais, proveedor: r.proveedor,
+        solicitante: /^Varios \(/.test(r.solicitante || '') ? '' : (r.solicitante || ''),
+        categoria: r.categoria, concepto: clasificar(r).concepto, moneda: r.moneda,
+        montoOrigen: r.montoOrigen, clp: Math.round(r.clp),
+        usd: r.usd != null ? r.usd : +(r.clp / params.USD_CLP).toFixed(2),
+        detalle: r.detalle || '', archivo: r.archivo || '',
+        carpeta: partes[0] || '(raíz)', fuente: r.fuente || 'documento',
+      });
+    }
+  }
+  const archivos = resultados.map(res => ({
+    estado: res.estado, archivo: res.archivo, ruta: res.ruta || '',
+    n: (res.registros || []).length,
+    clp: Math.round((res.registros || []).reduce((s2, r) => s2 + r.clp, 0)),
+    nota: res.nota || '',
+  }));
+  const html = generarHTMLCompartir({ registros, archivos, params });
+  window.__ultimoCompartir = { kb: Math.round(html.length / 1024), movimientos: registros.length };
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+  a.download = 'Reporte Consolidado Legal.html';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  progreso('Reporte generado: súbelo a la carpeta de SharePoint y comparte su vínculo.');
+});
 $id('btn-maestra').addEventListener('click', () => {
   const { movimientos } = exportarBaseMaestra(resultados, paramsActuales());
   progreso(`Base maestra generada con ${movimientos} movimientos.`);
@@ -144,7 +187,7 @@ function finalizarRender(params) {
   componerResultados(params);
   $id('portada').style.display = 'none';
   $id('vista-reporte').style.display = 'block';
-  for (const b of ['btn-params', 'btn-mantenedor', 'btn-fichas', 'btn-maestra', 'btn-csv', 'btn-recargar']) $id(b).hidden = false;
+  for (const b of ['btn-params', 'btn-mantenedor', 'btn-fichas', 'btn-maestra', 'btn-compartir', 'btn-csv', 'btn-recargar']) $id(b).hidden = false;
   window.__consolidado = { resultados, params }; // punto de acceso para exportaciones
   montarPanelParams(params);
   montarFormularioFicha(params);
@@ -428,7 +471,11 @@ function montarPanelParams(params) {
 (async () => {
   if (!graphDisponible()) {
     $id('aviso-sin-datos').hidden = false;
-    $id('btn-sharepoint').classList.add('destacado');
+    $id('btn-zip').classList.add('destacado');
+    $id('card-manual').classList.add('principal');
+    $id('card-manual').classList.remove('secundaria');
+    $id('card-sp').classList.remove('principal');
+    $id('card-sp').classList.add('secundaria');
     return;
   }
   try {
