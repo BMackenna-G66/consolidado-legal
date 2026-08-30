@@ -6,9 +6,7 @@ El proceso de negocio (roles, flujo mensual, convenciones) está en [PROCESO.md]
 
 ## Cómo funciona
 
-1. **Fuente de datos** (a elección al abrir la app):
-   - **Carpeta local / OneDrive**: seleccionas la carpeta de SharePoint sincronizada con OneDrive. Funciona sin ninguna configuración y la app recuerda la carpeta para las siguientes veces.
-   - **SharePoint en línea**: login con la cuenta Global66 (MSAL) y lectura vía Microsoft Graph. Requiere el registro en Azure AD descrito abajo.
+1. **Fuente de datos: SharePoint en vivo** ([fuentes.js](fuentes.js)). Login con la cuenta Global66 (MSAL) y lectura vía Microsoft Graph, en el momento de abrir el reporte. La carpeta manual queda solo como camino de emergencia.
 2. **Parsers por proveedor** ([parsers.js](parsers.js)): la subcarpeta determina el lector — boletas/notas de cobro de Moraga, facturas exentas de Dentons/Aninat, notas de cobro UF de Sensus, minutas xlsx de Andes Latam, planillas tabulares de Colombia/Argentina. Archivos "ANULADA" se excluyen; si un mes de Moraga tiene boleta y nota de cobro, la boleta manda (no se duplica).
 3. **Base histórica**: la hoja `Base resumen` del `Consolidado Paises.xlsx` se ingesta tal cual — los valores ya reportados se mantienen y tienen prioridad: si un país+mes ya está en la base, los archivos de ese período se omiten (no hay doble conteo). La lectura automática rige para los meses nuevos.
 4. **Normalización**: todo se convierte a CLP con los parámetros configurables (USD, PEN, COP, ARS, UF, IVA/IGV) que replican los supuestos del Excel. Se editan en ⚙ Parámetros y quedan en localStorage.
@@ -19,20 +17,17 @@ El proceso de negocio (roles, flujo mensual, convenciones) está en [PROCESO.md]
 
 Todo el procesamiento ocurre en el navegador; ningún documento sale hacia servicios de terceros.
 
-## Ejecutar (uso diario)
+## Cómo se usa (100% web)
 
-**Doble clic en `Abrir Consolidado Legal.command`.** Eso hace todo:
+**Abre https://bmackenna-g66.github.io/consolidado-legal/ y pulsa *Conectar con Microsoft*.** La app lee los documentos directamente desde SharePoint en ese momento y arma el reporte. No hay carpeta que sincronizar, ni copias locales que se atrasen, ni nada que mantener: si un encargado sube una factura, aparece en la siguiente carga.
 
-1. Copia los archivos desde la carpeta de SharePoint sincronizada con OneDrive (`~/Library/CloudStorage/OneDrive-Global81SPA/Consolidado Cobros - Pagos [Compliance]`) a `datos/` y genera su manifiesto.
-2. Levanta el servidor local (`servidor.py`, sin caché).
-3. Abre el navegador **con el reporte ya generado** — sin elegir carpetas ni hacer clics.
+Requisito único: el **Application (client) ID** del registro de Azure AD (ver más abajo). La app lo pide la primera vez y lo guarda en el navegador de cada persona. El inicio de sesión ocurre en la ventana oficial de Microsoft — la app nunca ve contraseñas, solo recibe un permiso de lectura temporal.
 
-Para ver las cifras actualizadas después de que alguien suba documentos nuevos: doble clic otra vez.
+> **Alternativa mientras no exista el clientId:** el botón *Elegir carpeta…* permite generar el reporte desde una carpeta descargada de SharePoint (o su ZIP descomprimido). Es un camino de emergencia, no el flujo normal.
 
-> En macOS, la primera vez puede pedir confirmación por ser un archivo descargado: clic derecho → Abrir.
-> Si el navegador mostrara datos viejos, recarga con Cmd+Shift+R.
+## Ejecutar en local (solo desarrollo)
 
-Requisito: la carpeta de SharePoint debe estar sincronizada con OneDrive (botón *Sincronizar* en SharePoint). Si no lo está, la app abre en la portada y permite elegir cualquier carpeta a mano; en Chrome/Edge la recuerda para las siguientes veces.
+`Abrir Consolidado Legal.command` levanta el servidor local y abre el navegador. Sirve para desarrollar; para el uso real basta el sitio publicado.
 
 ### Versión publicada
 

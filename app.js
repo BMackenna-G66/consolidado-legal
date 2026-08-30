@@ -420,33 +420,28 @@ function montarPanelParams(params) {
   });
 }
 
-// ---------- carga automática de la carpeta de datos local ----------
-// Si existe datos/manifest.json (copia de la carpeta de SharePoint sincronizada),
-// el reporte se genera solo al abrir la app, sin ningún clic.
-
-async function cargarDatosLocales() {
-  const resp = await fetch('datos/manifest.json', { cache: 'no-store' });
-  if (!resp.ok) throw new Error('sin carpeta de datos');
-  const manifest = await resp.json();
-  archivosCrudos = [];
-  let i = 0;
-  for (const m of manifest) {
-    progreso(`Leyendo ${++i}/${manifest.length}: ${m.archivo.split('/').pop()}`);
-    const r = await fetch('datos/' + m.archivo.split('/').map(encodeURIComponent).join('/'));
-    if (!r.ok) continue;
-    archivosCrudos.push({ nombre: m.archivo.split('/').pop(), ruta: m.ruta, arrayBuffer: await r.arrayBuffer() });
-  }
-  await procesarYRender();
-}
+// ---------- arranque: SharePoint en vivo ----------
+// La app lee los documentos directamente desde SharePoint. Si el modo en línea
+// ya está configurado y hay sesión de Microsoft vigente, el reporte se genera
+// solo al abrir; si no, la portada explica qué falta.
 
 (async () => {
+  if (!graphDisponible()) {
+    $id('aviso-sin-datos').hidden = false;
+    $id('btn-sharepoint').classList.add('destacado');
+    return;
+  }
   try {
-    await cargarDatosLocales();
-  } catch {
-    // Sin carpeta datos/ (típico de la versión publicada): hay que decirlo, o la
-    // portada queda muda y parece que la app no hace nada.
-    const aviso = $id('aviso-sin-datos');
-    if (aviso) aviso.hidden = false;
-    $id('btn-local').classList.add('destacado');
+    progreso('Conectando con SharePoint…');
+    archivosCrudos = await leerSharePoint(progreso);
+    await procesarYRender();
+  } catch (e) {
+    progreso('');
+    $id('aviso-sin-datos').hidden = false;
+    $id('btn-sharepoint').classList.add('destacado');
+    if (!/popup|cancel|user_cancelled/i.test(String(e.message || e))) {
+      $id('detalle-error').textContent = 'Último intento: ' + (e.message || e);
+      $id('detalle-error').hidden = false;
+    }
   }
 })();

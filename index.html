@@ -34,6 +34,10 @@
     padding: 14px 18px; font-size: 13px; line-height: 1.6; max-width: 700px; margin: 0 auto 24px; text-align: left; }
   #aviso-sin-datos code { background: #fde68a; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
   .boton.destacado { box-shadow: 0 0 0 3px rgba(52,88,177,.25); }
+  .opcion.principal { border-color: var(--azul); box-shadow: 0 2px 12px rgba(52,88,177,.12); }
+  .opcion.secundaria { opacity: .85; }
+  .etiqueta-alt { font-size: 10px; font-weight: 500; color: #94a3b8; background: #f1f5f9; border-radius: 9px; padding: 2px 8px; vertical-align: middle; }
+  #detalle-error { margin-top: 8px; font-size: 11.5px; color: #b45309; font-family: ui-monospace, monospace; }
   /* Tarjetas resumen */
   #tarjetas { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 22px; }
   .tarjeta { background: #fff; border: 1px solid var(--borde); border-radius: 12px; padding: 14px 20px; min-width: 180px; }
@@ -135,24 +139,27 @@
   <section id="portada">
     <h2>Generar reporte consolidado</h2>
     <div id="aviso-sin-datos" hidden>
-      <b>Esta versión publicada no incluye datos</b> — por confidencialidad, el sitio contiene solo el programa.
-      Para ver el reporte, pulsa <b>“Elegir carpeta…”</b> y selecciona la carpeta
-      <code>Consolidado Cobros - Pagos [Compliance]</code> sincronizada con OneDrive en tu equipo.
-      La app la recordará para las próximas veces y nada se sube a internet.
+      <b>Conecta con SharePoint para ver el reporte en vivo.</b> La aplicación lee los documentos
+      directamente desde la carpeta <code>Consolidado Cobros - Pagos [Compliance]</code>: no guarda
+      copias ni depende de que nadie sincronice nada.
+      <br>La primera vez pide el <b>Application (client) ID</b> del registro de Azure AD (lo entrega TI,
+      ver <code>SOLICITUD-TI.md</code>). Después basta iniciar sesión con tu cuenta Global66 — la app
+      nunca ve tu contraseña, solo recibe un permiso de lectura temporal.
+      <div id="detalle-error" hidden></div>
     </div>
     <p>La aplicación recorre la carpeta <b>Consolidado Cobros - Pagos [Compliance]</b>, interpreta los documentos de cada proveedor (boletas, facturas, notas de cobro y minutas) y construye el resumen de gastos por país y mes, en CLP. Nada se sube a servidores externos: todo se procesa en tu navegador.</p>
     <div class="opciones-carga">
-      <div class="opcion">
-        <h3>📁 Carpeta local / OneDrive</h3>
-        <p>Selecciona la carpeta sincronizada con OneDrive (en SharePoint: botón "Sincronizar" o "Agregar acceso directo a OneDrive"). La app la recuerda: la próxima vez basta un clic en Actualizar. Los datos se procesan solo en tu navegador.</p>
-        <button class="boton" id="btn-local">Elegir carpeta…</button>
+      <div class="opcion principal">
+        <h3>☁️ SharePoint en vivo</h3>
+        <p>Inicia sesión con tu cuenta Global66 y la app lee las carpetas directamente desde SharePoint, en el momento. Sin copias locales ni sincronizaciones que se atrasen.</p>
+        <button class="boton" id="btn-sharepoint">Conectar con Microsoft</button>
+      </div>
+      <div class="opcion secundaria">
+        <h3>📁 Carpeta manual <span class="etiqueta-alt">alternativa</span></h3>
+        <p>Solo si el modo en línea aún no está habilitado: selecciona una carpeta descargada de SharePoint (o su ZIP descomprimido) para generar el reporte esta vez.</p>
+        <button class="boton secundario" id="btn-local">Elegir carpeta…</button>
         <button class="boton secundario" id="btn-actualizar" hidden style="margin-left:8px"></button>
         <input type="file" id="input-carpeta" webkitdirectory multiple hidden>
-      </div>
-      <div class="opcion">
-        <h3>☁️ SharePoint en línea</h3>
-        <p>Inicia sesión con tu cuenta Global66 y lee las carpetas directamente desde SharePoint. Requiere registro previo de la app en Azure AD (ver README).</p>
-        <button class="boton" id="btn-sharepoint">Conectar con Microsoft</button>
       </div>
     </div>
     <div id="progreso"></div>
