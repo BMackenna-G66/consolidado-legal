@@ -6,7 +6,7 @@ import { leerCarpetaLocal, leerSharePoint, graphDisponible, soportaFSA, elegirCa
 import { construirPivot, renderPivot, renderResumenTarjetas, exportarCSV, AGRUPACIONES } from './reporte.js';
 import { clasificar, overrides, setOverride, CONCEPTOS, clasificarConIA, apiKeyGemini, setApiKeyGemini, normalizaCat } from './clasificador.js';
 import { fichas, guardarFicha, borrarFicha, nuevoId, calcularMontos, resultadoManual,
-         exportarFichasJSON, importarFichasJSON, MONEDAS, PAISES, CONCEPTOS_FICHA } from './manual.js';
+         exportarFichasJSON, importarFichasJSON, exportarFichasXLSX, MONEDAS, PAISES, CONCEPTOS_FICHA } from './manual.js';
 
 window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
@@ -272,6 +272,12 @@ $id('form-ficha').addEventListener('submit', e => {
 
 $id('fi-limpiar').addEventListener('click', limpiarFicha);
 $id('fi-exportar').addEventListener('click', exportarFichasJSON);
+$id('fi-excel').addEventListener('click', () => {
+  try {
+    const n = exportarFichasXLSX(paramsActuales());
+    $id('fi-msg').textContent = `✓ Excel con ${n} movimiento(s) — súbelo a la carpeta del proveedor en SharePoint`;
+  } catch (e) { $id('fi-msg').textContent = '⚠ ' + (e.message || e); }
+});
 $id('fi-importar-btn').addEventListener('click', () => $id('fi-importar').click());
 $id('fi-importar').addEventListener('change', async e => {
   if (!e.target.files.length) return;

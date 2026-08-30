@@ -69,7 +69,15 @@ El botón **➕ Carga manual** abre una ficha para registrar movimientos que no 
 
 Cada ficha entra al reporte como una fuente más: suma en el pivot, aparece en el mantenedor de clasificación y se incluye en el CSV. Se pueden editar y borrar, y el botón *Exportar / Importar fichas* mueve el registro completo entre equipos como un JSON — útil hasta que la captura se automatice.
 
-Las fichas se guardan en el navegador de quien las carga (localStorage), así que conviene exportarlas para respaldo o para consolidar el trabajo de varias personas.
+### Trabajo en equipo: una plantilla por persona
+
+Las fichas se guardan en el navegador de quien las carga, así que para consolidar el trabajo de varias personas se usa la carpeta compartida como punto de encuentro:
+
+1. Cada persona abre la app (el link publicado sirve), llena sus fichas y pulsa **⬇ Excel para SharePoint**.
+2. Sube ese archivo — `Carga manual - <nombre> - <año-mes>.xlsx` — a la carpeta del proveedor en SharePoint, junto a las facturas.
+3. La app reconoce esa plantilla por sus encabezados y la lee como un documento más: los movimientos digitados por todos aparecen en el consolidado, con su solicitante.
+
+El archivo se puede llenar también a mano en Excel, respetando los encabezados (`Fecha, Solicitante, Proveedor, Pais, Concepto, Categoria, Moneda, Monto origen, Monto CLP, Monto USD, Detalle`). Así los datos quedan siempre dentro de SharePoint, sin depender de que nadie comparta su navegador.
 
 ## Agregar un proveedor nuevo
 

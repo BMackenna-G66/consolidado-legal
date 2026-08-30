@@ -480,12 +480,63 @@ export function aplicarBaseHistorica(resultados) {
   return resultados;
 }
 
+// Plantilla de carga manual: la genera la app y cualquiera puede llenarla a mano.
+// Se reconoce por sus encabezados, así que basta subirla a la carpeta del proveedor.
+export function parseCargaManual(buf, ruta, params, archivo) {
+  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
+  const registros = [];
+  for (const hoja of wb.SheetNames) {
+    const filas = filasDeHoja(wb.Sheets[hoja]);
+    const hIdx = filas.findIndex(r => r && r.some(c => /^solicitante$/i.test(String(c ?? '').trim()))
+      && r.some(c => /monto/i.test(String(c ?? ''))));
+    if (hIdx < 0) continue;
+    const H = filas[hIdx].map(h => String(h ?? '').trim());
+    const col = {
+      fecha: buscaColumna(H, /^fecha$/i), solicitante: buscaColumna(H, /^solicitante$/i),
+      proveedor: buscaColumna(H, /^proveedor$/i), pais: buscaColumna(H, /^pa[ií]s$/i),
+      concepto: buscaColumna(H, /^concepto$/i), categoria: buscaColumna(H, /^categor/i),
+      moneda: buscaColumna(H, /^moneda$/i), origen: buscaColumna(H, /monto\s*origen/i),
+      clp: buscaColumna(H, /monto\s*clp/i), usd: buscaColumna(H, /monto\s*usd/i),
+      detalle: buscaColumna(H, /^detalle$/i),
+    };
+    for (const r of filas.slice(hIdx + 1)) {
+      const clp = numeroUS(r[col.clp]);
+      if (!isFinite(clp) || clp <= 0) continue;
+      let dia = 1, mes = null, anio = null;
+      const cel = r[col.fecha];
+      if (cel instanceof Date && !isNaN(cel)) { dia = cel.getDate(); mes = cel.getMonth() + 1; anio = cel.getFullYear(); }
+      else {
+        const m = String(cel ?? '').match(/(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})/);
+        if (m) { dia = +m[1]; mes = +m[2]; anio = +m[3] < 100 ? 2000 + +m[3] : +m[3]; }
+      }
+      const rf = fechaDeRuta(ruta);
+      registros.push({
+        dia, mes: mes || rf.mes, anio: anio || rf.anio,
+        pais: String(r[col.pais] ?? '').trim() || 'Sin país',
+        proveedor: String(r[col.proveedor] ?? '').trim() || 'Sin proveedor',
+        solicitante: String(r[col.solicitante] ?? '').trim(),
+        categoria: String(r[col.categoria] ?? '').trim() || 'Carga manual',
+        concepto: String(r[col.concepto] ?? '').trim() || 'Gastos',
+        moneda: String(r[col.moneda] ?? 'CLP').trim(),
+        montoOrigen: numeroUS(r[col.origen]) || clp,
+        clp: Math.round(clp), usd: numeroUS(r[col.usd]) || undefined,
+        archivo, detalle: String(r[col.detalle] ?? '').trim(), fuente: 'plantilla',
+      });
+    }
+  }
+  if (!registros.length) return { registros: [], estado: 'error', nota: 'Plantilla de carga manual sin filas con Monto CLP' };
+  return { registros, estado: 'ok', nota: `${registros.length} movimiento(s) digitado(s) en plantilla` };
+}
+
 // ---------- despachador ----------
 
 export async function procesarArchivo({ nombre, ruta, arrayBuffer }, params) {
   const base = { archivo: nombre, ruta };
   if (/anulad/i.test(nombre)) return { ...base, estado: 'omitido', nota: 'Documento ANULADO — excluido', registros: [] };
   if (/consolidado\s+paises\.xlsx$/i.test(nombre)) return { ...base, ...parseBaseResumen(arrayBuffer, ruta, params, nombre) };
+  if (/\.xlsx?$/i.test(nombre) && /carga\s*manual/i.test(nombre)) {
+    return { ...base, ...parseCargaManual(arrayBuffer, ruta, params, nombre) };
+  }
   const prov = proveedorDeRuta(ruta);
   // Nota de cobro en UF: es de Moraga (Chile) aunque esté archivada en otra carpeta.
   if (/\.pdf$/i.test(nombre) && /^ncc/i.test(nombre)) {

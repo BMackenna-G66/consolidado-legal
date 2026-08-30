@@ -79,6 +79,40 @@ export function resultadoManual(params) {
   };
 }
 
+// Columnas de la plantilla compartida. Son también las que reconoce el lector,
+// así que un Excel llenado a mano con estos encabezados se ingesta igual.
+export const COLUMNAS_PLANTILLA = [
+  'Fecha', 'Solicitante', 'Proveedor', 'Pais', 'Concepto', 'Categoria',
+  'Moneda', 'Monto origen', 'Monto CLP', 'Monto USD', 'Detalle',
+];
+
+// Genera el Excel que cada persona sube a su carpeta de SharePoint. La app lo lee
+// como un documento más, así los movimientos digitados por varias personas se
+// consolidan sin que nadie comparta su navegador.
+export function exportarFichasXLSX(params, soloNuevas = null) {
+  const XLSX = window.XLSX;
+  const lista = soloNuevas || fichas();
+  if (!lista.length) throw new Error('No hay fichas para exportar');
+  const filas = lista.map(f => {
+    const { clp, usd } = calcularMontos(f, params);
+    const fecha = `${String(f.dia || 1).padStart(2, '0')}/${String(f.mes).padStart(2, '0')}/${f.anio}`;
+    return {
+      'Fecha': fecha, 'Solicitante': f.solicitante || '', 'Proveedor': f.proveedor || '',
+      'Pais': f.pais, 'Concepto': f.concepto, 'Categoria': f.categoria || 'Carga manual',
+      'Moneda': f.moneda, 'Monto origen': Number(f.montoOrigen) || 0,
+      'Monto CLP': clp, 'Monto USD': usd, 'Detalle': f.detalle || '',
+    };
+  });
+  const ws = XLSX.utils.json_to_sheet(filas, { header: COLUMNAS_PLANTILLA });
+  ws['!cols'] = COLUMNAS_PLANTILLA.map(c => ({ wch: Math.max(12, c.length + 4) }));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Carga manual');
+  const quien = (lista[0].solicitante || 'equipo').replace(/[^\wÁÉÍÓÚáéíóúñÑ]+/g, '-');
+  const periodo = `${lista[0].anio}-${String(lista[0].mes).padStart(2, '0')}`;
+  XLSX.writeFile(wb, `Carga manual - ${quien} - ${periodo}.xlsx`);
+  return filas.length;
+}
+
 export function exportarFichasJSON() {
   const blob = new Blob([JSON.stringify(fichas(), null, 1)], { type: 'application/json' });
   const a = document.createElement('a');
