@@ -18,17 +18,25 @@ globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
 
 const { procesarArchivo, deduplicar, aplicarBaseHistorica, enriquecerSolicitantes } = await import(path.join(APP, 'parsers.js'));
 const { DEFAULT_PARAMS, MESES } = await import(path.join(APP, 'config.js'));
+const { extraerDetalle } = await import(path.join(APP, 'detalle.js'));
 
 const manifest = JSON.parse(fs.readFileSync(path.join(APP, 'datos/manifest.json'), 'utf8'));
 const params = { ...DEFAULT_PARAMS };
 
 const resultados = [];
+const detalle = [];
 for (const m of manifest) {
   const full = path.join(APP, 'datos', m.archivo);
   const buf = fs.readFileSync(full);
   const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   const nombre = m.archivo.split('/').pop();
+  const partes = m.ruta.split('/').filter(Boolean);
   resultados.push(await procesarArchivo({ nombre, ruta: m.ruta, arrayBuffer }, params));
+  const lineas = await extraerDetalle({ nombre, ruta: m.ruta, arrayBuffer }, {
+    carpetaProveedor: partes[0] || '(raíz)',
+    carpetaMes: partes.length > 2 ? partes[partes.length - 2] : '',
+  });
+  detalle.push(...lineas);
 }
 deduplicar(resultados);
 enriquecerSolicitantes(resultados);
@@ -43,7 +51,8 @@ for (const res of resultados) {
     filas.push({
       'Año': r.anio ?? '', 'Mes': r.mes ?? '', 'Mes nombre': r.mes ? MESES[r.mes - 1] : '', 'Día': r.dia ?? '',
       'Periodo': (r.anio && r.mes) ? `${r.anio}-${String(r.mes).padStart(2, '0')}` : '',
-      'País': r.pais, 'Proveedor / abogado': r.proveedor, 'Solicitante': r.solicitante || '',
+      'País': r.pais, 'Proveedor / abogado': r.proveedor,
+      'Solicitante': /^Varios \(/.test(r.solicitante || '') ? '' : (r.solicitante || ''),
       'Concepto cobrado': r.categoria, 'Tipo': r.concepto,
       'Moneda origen': r.moneda, 'Monto origen': Number(r.montoOrigen) || 0,
       'Monto CLP': Math.round(r.clp),
@@ -88,6 +97,23 @@ const suma = (clave) => {
   return [...m.entries()].sort((a, b) => b[1].clp - a[1].clp)
     .map(([k, v]) => ({ [clave]: k, 'Movimientos': v.n, 'Total CLP': Math.round(v.clp), 'Total USD': +v.usd.toFixed(2) }));
 };
+// Detalle línea por línea de los documentos que lo traen adentro
+const filasDetalle = detalle.map(d => ({
+  'Periodo': (d.anio && d.mes) ? `${d.anio}-${String(d.mes).padStart(2, '0')}` : '',
+  'Fecha': d.fecha || '', 'Año': d.anio ?? '', 'Mes': d.mes ?? '', 'Día': d.dia ?? '',
+  'Carpeta proveedor': d.carpetaProveedor || '', 'Carpeta mes': d.carpetaMes || '',
+  'Categoría': d.categoria || '', 'Solicitante': d.solicitante || '',
+  'Profesional / abogado': d.profesional || '',
+  'Descripción del trabajo': d.descripcion || '',
+  'Horas': d.horas || '', 'Tarifa': d.tarifa ?? '',
+  'Valor': d.valor ?? '', 'Moneda del valor': d.monedaValor || '', 'Unidad': d.unidad || '',
+  'N° documento': d.documento || '', 'Hoja': d.hoja || '', 'Tipo documento': d.tipoDocumento || '',
+  'Archivo': d.archivo || '', 'Ruta completa': d.ruta || '',
+}));
+filasDetalle.sort((a, b) => String(a['Periodo']).localeCompare(String(b['Periodo']))
+  || String(a['Carpeta proveedor']).localeCompare(String(b['Carpeta proveedor'])));
+if (filasDetalle.length) agregar('Detalle línea por línea', filasDetalle);
+
 agregar('Por país', suma('País'));
 agregar('Por proveedor', suma('Proveedor / abogado'));
 agregar('Por concepto', suma('Concepto cobrado'));
@@ -131,7 +157,7 @@ agregar('Parámetros', [
 const salida = process.argv[2] || path.join(APP, 'Base maestra Consolidado Legal.xlsx');
 XLSX.writeFile(wb, salida);
 console.log(JSON.stringify({
-  archivo: salida, movimientos: filas.length, archivos: resultados.length,
+  archivo: salida, movimientos: filas.length, lineasDetalle: detalle.length, archivos: resultados.length,
   totalCLP: Math.round(filas.reduce((s, f) => s + f['Monto CLP'], 0)),
   hojas: wb.SheetNames,
 }, null, 1));

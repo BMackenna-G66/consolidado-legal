@@ -88,8 +88,11 @@ El botón **⬇ Base maestra Excel** descarga un libro con todo lo que la app le
 | Base maestra | Un movimiento por fila con 24 columnas: período, país, proveedor, solicitante, concepto cobrado, tipo, moneda y monto de origen, CLP, USD, detalle, **origen del dato**, carpeta de proveedor, carpeta de mes, archivo, ruta completa, estado y nota de lectura |
 | Por país / proveedor / concepto / solicitante / tipo / origen | Totales en CLP y USD de cada corte |
 | Resumen país x mes | La misma tabla del reporte en pantalla |
+| Detalle línea por línea | El desglose que traen los documentos por dentro, sin agrupar: fecha, categoría, **solicitante**, **profesional/abogado**, descripción del trabajo, horas y valor. Sale de los anexos de Moraga (bloque "DETALLE TRABAJOS"), de los timesheets y gastos de las minutas de Andes Latam, y de los hitos de Sensus |
 | Archivos leídos | Los 90 documentos con su estado, cuántos movimientos aportó cada uno y con qué supuestos |
 | Parámetros | Tipos de cambio usados, fecha de generación y totales de control |
+
+> Los montos viven a nivel de documento (una boleta, una factura); el detalle interno aporta horas y descripciones, no montos por línea. Por eso son dos hojas y no una: sumar el detalle **no** da el total del consolidado.
 
 También se puede generar sin abrir el navegador, ejecutando los mismos lectores en Node:
 
