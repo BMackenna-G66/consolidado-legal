@@ -3,7 +3,7 @@
 import { DEFAULT_PARAMS, MESES } from './config.js';
 import { procesarArchivo, deduplicar, aplicarBaseHistorica, enriquecerSolicitantes } from './parsers.js';
 import { leerCarpetaLocal, leerSharePoint, graphDisponible, soportaFSA, elegirCarpetaFSA, leerCarpetaRecordada, carpetaGuardada, setClientId } from './fuentes.js';
-import { construirPivot, renderPivot, renderResumenTarjetas, exportarCSV, AGRUPACIONES } from './reporte.js';
+import { construirPivot, renderPivot, renderResumenTarjetas, exportarCSV, exportarBaseMaestra, AGRUPACIONES } from './reporte.js';
 import { clasificar, overrides, setOverride, CONCEPTOS, clasificarConIA, apiKeyGemini, setApiKeyGemini, normalizaCat } from './clasificador.js';
 import { fichas, guardarFicha, borrarFicha, nuevoId, calcularMontos, resultadoManual,
          exportarFichasJSON, importarFichasJSON, exportarFichasXLSX, MONEDAS, PAISES, CONCEPTOS_FICHA } from './manual.js';
@@ -89,6 +89,10 @@ $id('btn-recargar').addEventListener('click', () => {
   progreso('');
 });
 $id('btn-csv').addEventListener('click', () => exportarCSV(registrosFiltrados()));
+$id('btn-maestra').addEventListener('click', () => {
+  const { movimientos } = exportarBaseMaestra(resultados, paramsActuales());
+  progreso(`Base maestra generada con ${movimientos} movimientos.`);
+});
 $id('btn-params').addEventListener('click', () => $id('panel-params').classList.toggle('visible'));
 $id('f-gastos').addEventListener('change', renderTodo);
 $id('f-honorarios').addEventListener('change', renderTodo);
@@ -140,7 +144,8 @@ function finalizarRender(params) {
   componerResultados(params);
   $id('portada').style.display = 'none';
   $id('vista-reporte').style.display = 'block';
-  for (const b of ['btn-params', 'btn-mantenedor', 'btn-fichas', 'btn-csv', 'btn-recargar']) $id(b).hidden = false;
+  for (const b of ['btn-params', 'btn-mantenedor', 'btn-fichas', 'btn-maestra', 'btn-csv', 'btn-recargar']) $id(b).hidden = false;
+  window.__consolidado = { resultados, params }; // punto de acceso para exportaciones
   montarPanelParams(params);
   montarFormularioFicha(params);
   montarSelectorAgrupacion();

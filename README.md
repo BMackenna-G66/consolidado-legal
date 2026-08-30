@@ -79,6 +79,24 @@ Las fichas se guardan en el navegador de quien las carga, así que para consolid
 
 El archivo se puede llenar también a mano en Excel, respetando los encabezados (`Fecha, Solicitante, Proveedor, Pais, Concepto, Categoria, Moneda, Monto origen, Monto CLP, Monto USD, Detalle`). Así los datos quedan siempre dentro de SharePoint, sin depender de que nadie comparta su navegador.
 
+## Base maestra en Excel
+
+El botón **⬇ Base maestra Excel** descarga un libro con todo lo que la app leyó y calculó:
+
+| Hoja | Contenido |
+|---|---|
+| Base maestra | Un movimiento por fila con 24 columnas: período, país, proveedor, solicitante, concepto cobrado, tipo, moneda y monto de origen, CLP, USD, detalle, **origen del dato**, carpeta de proveedor, carpeta de mes, archivo, ruta completa, estado y nota de lectura |
+| Por país / proveedor / concepto / solicitante / tipo / origen | Totales en CLP y USD de cada corte |
+| Resumen país x mes | La misma tabla del reporte en pantalla |
+| Archivos leídos | Los 90 documentos con su estado, cuántos movimientos aportó cada uno y con qué supuestos |
+| Parámetros | Tipos de cambio usados, fecha de generación y totales de control |
+
+También se puede generar sin abrir el navegador, ejecutando los mismos lectores en Node:
+
+```bash
+cd scripts && npm install xlsx pdfjs-dist@3.11.174 && node base-maestra.mjs
+```
+
 ## Agregar un proveedor nuevo
 
 No requiere tocar código: crear la carpeta en la raíz de SharePoint y subir los documentos. La app detecta la carpeta nueva, deduce el país del nombre (terminar en `- Chile`, `- Colombia`, `- Perú` o `- Argentina`) y aplica los lectores genéricos, marcando los movimientos con "🆕 Proveedor nuevo detectado" en el panel de archivos.

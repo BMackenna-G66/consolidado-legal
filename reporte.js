@@ -141,6 +141,97 @@ export function renderResumenTarjetas(contenedor, registros) {
   contenedor.innerHTML = html;
 }
 
+// Base maestra: un Excel con todo lo que la app leyó y calculó — cada movimiento
+// con su trazabilidad al archivo de origen, más las tablas de resumen y el
+// inventario de archivos. Es la foto completa del consolidado en un solo libro.
+export function exportarBaseMaestra(resultados, params) {
+  const XLSX = window.XLSX;
+  const filas = [];
+  for (const res of resultados) {
+    const carpeta = String(res.ruta || '').split('/').slice(0, -1).join('/') || '(raíz)';
+    for (const r of (res.registros || [])) {
+      filas.push({
+        'Año': r.anio, 'Mes': r.mes, 'Mes nombre': r.mes ? MESES[r.mes - 1] : '', 'Día': r.dia,
+        'País': r.pais, 'Proveedor / abogado': r.proveedor, 'Solicitante': r.solicitante || '',
+        'Concepto cobrado': r.categoria, 'Tipo': r.concepto,
+        'Moneda origen': r.moneda, 'Monto origen': r.montoOrigen,
+        'Monto CLP': r.clp,
+        'Monto USD': r.usd != null ? r.usd : (params.USD_CLP ? +(r.clp / params.USD_CLP).toFixed(2) : ''),
+        'Detalle': r.detalle || '',
+        'Origen del dato': r.fuente === 'base' ? 'Base histórica Excel'
+          : r.fuente === 'manual' ? 'Ficha manual'
+          : r.fuente === 'plantilla' ? 'Plantilla de carga manual' : 'Documento leído',
+        'Archivo': r.archivo || '', 'Carpeta': carpeta, 'Ruta completa': res.ruta || '',
+        'Estado lectura': res.estado || '', 'Nota de lectura': res.nota || '',
+        'Solicitantes detectados': (r.solicitantesLista || []).join(', '),
+      });
+    }
+  }
+  filas.sort((a, b) => (a['Año'] - b['Año']) || (a['Mes'] - b['Mes']) || String(a['País']).localeCompare(b['País']));
+
+  const wb = XLSX.utils.book_new();
+  const hoja = (nombre, datos, cols) => {
+    const ws = XLSX.utils.json_to_sheet(datos);
+    ws['!cols'] = (cols || Object.keys(datos[0] || {})).map(c => ({ wch: Math.min(46, Math.max(11, String(c).length + 4)) }));
+    ws['!autofilter'] = { ref: ws['!ref'] };
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+    XLSX.utils.book_append_sheet(wb, ws, nombre);
+  };
+
+  hoja('Base maestra', filas);
+
+  // Resúmenes: los mismos cortes que muestra el reporte en pantalla
+  const suma = (clave) => {
+    const m = new Map();
+    for (const f of filas) {
+      const k = f[clave] || '(sin dato)';
+      const e = m.get(k) || { n: 0, clp: 0 };
+      e.n++; e.clp += f['Monto CLP'] || 0;
+      m.set(k, e);
+    }
+    return [...m.entries()].sort((a, b) => b[1].clp - a[1].clp)
+      .map(([k, v]) => ({ [clave]: k, 'Movimientos': v.n, 'Total CLP': Math.round(v.clp) }));
+  };
+  hoja('Por país', suma('País'));
+  hoja('Por proveedor', suma('Proveedor / abogado'));
+  hoja('Por concepto', suma('Concepto cobrado'));
+  hoja('Por solicitante', suma('Solicitante'));
+
+  // País × mes, la tabla del resumen
+  const periodos = [...new Set(filas.map(f => `${f['Año']}-${String(f['Mes']).padStart(2, '0')}`))].sort();
+  const paises = [...new Set(filas.map(f => f['País']))];
+  const pivot = paises.map(p => {
+    const fila = { 'País': p };
+    let total = 0;
+    for (const per of periodos) {
+      const v = filas.filter(f => f['País'] === p && `${f['Año']}-${String(f['Mes']).padStart(2, '0')}` === per)
+        .reduce((s, f) => s + (f['Monto CLP'] || 0), 0);
+      fila[per] = Math.round(v) || '';
+      total += v;
+    }
+    fila['Total general'] = Math.round(total);
+    return fila;
+  });
+  const totalFila = { 'País': 'Total general' };
+  for (const per of periodos) totalFila[per] = Math.round(pivot.reduce((s, r) => s + (Number(r[per]) || 0), 0));
+  totalFila['Total general'] = Math.round(pivot.reduce((s, r) => s + (Number(r['Total general']) || 0), 0));
+  hoja('Resumen país x mes', [...pivot, totalFila]);
+
+  // Inventario de archivos: qué se leyó, con qué supuestos y qué quedó fuera
+  hoja('Archivos', resultados.map(res => ({
+    'Estado': res.estado, 'Archivo': res.archivo, 'Ruta': res.ruta || '',
+    'Movimientos aportados': (res.registros || []).length,
+    'Monto CLP aportado': Math.round((res.registros || []).reduce((s, r) => s + r.clp, 0)),
+    'Nota': res.nota || '',
+  })));
+
+  hoja('Parámetros', Object.entries(params).map(([k, v]) => ({ 'Parámetro': k, 'Valor': v })));
+
+  const fecha = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `Base maestra Consolidado Legal ${fecha}.xlsx`);
+  return { movimientos: filas.length, archivos: resultados.length };
+}
+
 export function exportarCSV(registros) {
   const enc = ['Año', 'Mes', 'Día', 'País', 'Proveedor', 'Solicitante', 'Concepto cobrado', 'Tipo', 'Moneda', 'Monto origen', 'CLP', 'USD', 'Origen', 'Archivo', 'Detalle'];
   const filas = registros.map(r => [
