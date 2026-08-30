@@ -116,7 +116,7 @@ export async function parseMoragaBH(buf, ruta, params, archivo) {
   return {
     registros: [{
       ...fechaReg(f), pais: 'Chile', proveedor: 'Alvaro Moraga',
-      categoria: 'Asesoría Profesional', concepto: 'Gastos', moneda: 'CLP',
+      categoria: 'Asesoría Profesional', concepto: 'Honorarios', moneda: 'CLP',
       solicitante: solicitanteResumen(solicitantesDelTexto(texto)),
       montoOrigen: neto, clp: neto, archivo, detalle: mDesc ? mDesc[1].trim() : 'Boleta de honorarios',
     }],
@@ -150,7 +150,7 @@ export async function parseMoragaNCCL(buf, ruta, params, archivo) {
   return {
     registros: [{
       ...fechaReg(f), pais: 'Chile', proveedor: 'Alvaro Moraga',
-      categoria: 'Asesoría Profesional', concepto: 'Gastos', moneda: 'UF',
+      categoria: 'Asesoría Profesional', concepto: 'Honorarios', moneda: 'UF',
       solicitante: solicitanteResumen(solicitantesDelTexto(texto)),
       montoOrigen: uf, clp, archivo, detalle: `Nota de cobro ${uf} UF`,
     }],
@@ -293,17 +293,39 @@ export function parseAndesLatam(buf, ruta, params, archivo) {
       const f = hasta || desde;
       const mes = (f && f.mes) || rf.mes || null;
       const anio = (f && f.anio) || rf.anio || null;
-      const clp = Math.round(total * params.USD_CLP);
+      const clpTotal = Math.round(total * params.USD_CLP);
+      const lineas = parseAndesPorLineas(buf, ruta, params, archivo);
+      if (lineas.registros.length) {
+        // Detalle real de la minuta, más un ajuste para cuadrar con el total facturado
+        for (const r of lineas.registros) {
+          if (!r.mes) r.mes = mes;
+          if (!r.anio) r.anio = anio || rf.anio || null;
+        }
+        const sumaLineas = lineas.registros.reduce((sm, r) => sm + r.clp, 0);
+        const dif = clpTotal - sumaLineas;
+        if (Math.abs(dif) > 1000) {
+          lineas.registros.push({
+            dia: 1, mes, anio, pais: 'Perú', proveedor: 'Andes Latam',
+            categoria: 'Fee mensual / ajuste de minuta', concepto: 'Honorarios', moneda: 'USD',
+            solicitante: '', montoOrigen: +(dif / params.USD_CLP).toFixed(2), clp: dif, archivo,
+            detalle: `Cuadra el detalle con el total facturado${factura ? ' ' + factura : ''} (retainer / IGV)`,
+          });
+        }
+        return {
+          registros: lineas.registros, estado: 'supuesto',
+          nota: `${lineas.registros.length} líneas de la minuta; total facturado USD ${total.toFixed(2)} = ${fmt(clpTotal)} (incluye IGV)`,
+        };
+      }
       return {
         registros: [{
           dia: (f && f.dia) || 1, mes, anio, pais: 'Perú', proveedor: 'Andes Latam',
           categoria: 'Asesoría legal Andes Latam', concepto: 'Honorarios', moneda: 'USD',
           solicitante: solicitanteResumen(solicitantes),
-          montoOrigen: total, clp, archivo,
+          montoOrigen: total, clp: clpTotal, archivo,
           detalle: `Minuta de liquidación${factura ? ' ' + factura : ''} (honorarios + gastos + IGV)`,
         }],
         estado: 'supuesto',
-        nota: `Total cobro USD ${total.toFixed(2)} × ${params.USD_CLP} = ${fmt(clp)} (incluye IGV)`,
+        nota: `Total cobro USD ${total.toFixed(2)} × ${params.USD_CLP} = ${fmt(clpTotal)} (incluye IGV)`,
       };
     }
   }
@@ -315,8 +337,9 @@ function parseAndesPorLineas(buf, ruta, params, archivo) {
   const wb = XLSX.read(buf, { type: 'array' });
   const registros = [];
   const notas = [];
-  for (const nombre of wb.SheetNames) {
-    if (!/ok/i.test(nombre)) continue;
+  const conOk = wb.SheetNames.filter(n => /\bok\b/i.test(n));
+  const hojasALeer = conOk.length ? conOk : wb.SheetNames;
+  for (const nombre of hojasALeer) {
     const filas = filasDeHoja(wb.Sheets[nombre]);
     if (!filas.length) continue;
     const hIdx = filas.findIndex(r => r && r.some(c => /Descripci[oó]n/i.test(String(c ?? ''))));
@@ -339,7 +362,7 @@ function parseAndesPorLineas(buf, ruta, params, archivo) {
           pais: 'Perú', proveedor: 'Andes Latam',
           categoria: (cCat >= 0 && r[cCat]) ? String(r[cCat]) : 'Asesoría legal por horas',
           solicitante: (cSolic >= 0 && r[cSolic]) ? String(r[cSolic]).trim() : '',
-          concepto: 'Gastos', moneda: 'USD', montoOrigen: usd, clp, archivo,
+          concepto: 'Honorarios', moneda: 'USD', montoOrigen: usd, clp, archivo,
           detalle: cDesc >= 0 ? String(r[cDesc] ?? '').slice(0, 120) : '',
         });
       }
@@ -366,7 +389,10 @@ function parseAndesPorLineas(buf, ruta, params, archivo) {
   if (!registros.length) return { registros, estado: 'error', nota: 'No se encontraron hojas "ok" con datos' };
   // Fallback de fecha por ruta para filas sin mes/año
   const rf = fechaDeRuta(ruta);
-  for (const reg of registros) { if (!reg.mes && rf.mes) { reg.mes = rf.mes; reg.anio = reg.anio || rf.anio; } }
+  for (const reg of registros) {
+    if (!reg.mes && rf.mes) reg.mes = rf.mes;
+    if (!reg.anio) reg.anio = rf.anio || null;
+  }
   notas.push(`${registros.length} filas (USD→CLP ${params.USD_CLP}, PEN→CLP ${params.PEN_CLP}, +IGV ${params.IVA_PE * 100}%)`);
   return { registros, estado: 'supuesto', nota: notas.join(' · ') };
 }
@@ -447,7 +473,7 @@ export function parseBaseResumen(buf, ruta, params, archivo) {
       dia: esFecha ? f.getDate() : 1,
       mes: numeroUS(r[col.mes]) || (esFecha ? f.getMonth() + 1 : null),
       anio: esFecha ? f.getFullYear() : null,
-      pais: String(pais).trim(), proveedor: 'Reportado (base histórica)',
+      pais: String(pais).trim(), proveedor: 'Base histórica (Excel)',
       categoria: String(r[col.categoria] ?? 'Sin categoría').trim(),
       concepto, moneda: 'CLP', montoOrigen: clp, clp: Math.round(clp),
       archivo, detalle: '', fuente: 'base',
@@ -456,26 +482,23 @@ export function parseBaseResumen(buf, ruta, params, archivo) {
   return { registros, estado: 'ok', nota: `${registros.length} movimientos ya reportados — se mantienen tal cual`, fuente: 'base' };
 }
 
-// Lo ya reportado manda: si la base histórica tiene datos para un país+mes,
-// los archivos de carpetas no vuelven a sumar ese país+mes (evita doble conteo).
+// Los documentos de las carpetas son la fuente principal: traen proveedor,
+// solicitante y detalle. La base histórica del Excel solo rellena los países+meses
+// donde NO hay documentos (evita doble conteo sin perder detalle).
 export function aplicarBaseHistorica(resultados) {
   const cubiertos = new Set();
   for (const res of resultados) {
-    if (res.fuente !== 'base') continue;
-    for (const r of res.registros) if (r.anio && r.mes) cubiertos.add(`${r.pais}|${r.anio}-${r.mes}`);
-  }
-  if (!cubiertos.size) return resultados;
-  for (const res of resultados) {
-    if (res.fuente === 'base' || !res.registros.length) continue;
-    const antes = res.registros.length;
-    res.registros = res.registros.filter(r => !cubiertos.has(`${r.pais}|${r.anio}-${r.mes}`));
-    const quitados = antes - res.registros.length;
-    if (quitados && !res.registros.length) {
-      res.estado = 'omitido';
-      res.nota = 'Período ya reportado en la base histórica del Excel — se mantiene el valor reportado';
-    } else if (quitados) {
-      res.nota = (res.nota || '') + ` · ${quitados} filas omitidas por estar ya reportadas en la base histórica`;
+    if (res.fuente === 'base' || res.fuente === 'manual') continue;
+    for (const r of (res.registros || [])) {
+      if (r.anio && r.mes && r.clp > 0) cubiertos.add(`${r.pais}|${r.anio}-${r.mes}`);
     }
+  }
+  for (const res of resultados) {
+    if (res.fuente !== 'base') continue;
+    const antes = res.registros.length;
+    res.registros = res.registros.filter(r => !(r.anio && r.mes) || !cubiertos.has(`${r.pais}|${r.anio}-${r.mes}`));
+    const quitados = antes - res.registros.length;
+    res.nota = `${antes} movimientos históricos; se usan ${res.registros.length} (en ${quitados} los documentos de las carpetas mandan y aportan el detalle)`;
   }
   return resultados;
 }
@@ -547,6 +570,14 @@ export async function procesarArchivo({ nombre, ruta, arrayBuffer }, params) {
       if (fuera) r.nota += ' · ⚠ Documento de Moraga (Chile) archivado fuera de su carpeta';
       return { ...base, ...r, proveedor: 'Alvaro Moraga', pais: 'Chile' };
     }
+  }
+  if (/\.xlsx?$/i.test(nombre) && /andes\s*latam/i.test(nombre)) {
+    const r = parseAndesLatam(arrayBuffer, ruta, params, nombre);
+    if ((!prov || prov.id !== 'andes') && r.registros.length) {
+      r.nota = (r.nota || '') + ' · ⚠ Minuta de Andes Latam archivada fuera de su carpeta';
+      if (r.estado === 'ok') r.estado = 'supuesto';
+    }
+    return { ...base, ...r, proveedor: 'Andes Latam', pais: 'Perú' };
   }
   if (!prov) return { ...base, estado: 'error', nota: 'Archivo fuera de una carpeta de proveedor', registros: [] };
   const ext = nombre.split('.').pop().toLowerCase();
@@ -651,7 +682,7 @@ export function deduplicar(resultados) {
     for (const r of [...res.registros]) {
       const clave = `${r.proveedor}|${r.anio}-${r.mes}|${r.clp}|${(r.detalle || '').slice(0, 40)}`;
       const previo = vistos.get(clave);
-      if (previo && /\(\d\)|copia/i.test(res.archivo)) {
+      if (previo && (previo === res.archivo || /\(\d\)|copia/i.test(res.archivo))) {
         res.registros = res.registros.filter(x => x !== r);
         res.estado = 'omitido';
         res.nota = `Duplicado de ${previo} — se omite`;

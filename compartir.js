@@ -11,6 +11,7 @@ export function generarHTMLCompartir({ registros, archivos, params }) {
   return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Consolidado Legal — Global66</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 :root{--azul:#3458b1;--navy:#0a1b44;--borde:#e2e8f0}
@@ -48,6 +49,10 @@ tr.fila-total{font-weight:700;background:#eef2ff;border-top:2px solid var(--azul
 .conteo{display:inline-block;margin-left:8px;font-size:10px;color:#94a3b8;background:#f1f5f9;border-radius:9px;padding:1px 7px}
 .nota{font-size:12px;color:#64748b;margin:6px 0 0}
 button{background:#fff;color:var(--navy);border:1px solid var(--borde);border-radius:8px;padding:7px 14px;font:500 13px Inter;cursor:pointer}
+label.fx{display:flex;flex-direction:column;gap:4px;font-size:11.5px;font-weight:500;color:#475569}
+label.fx input,label.fx select{border:1px solid var(--borde);border-radius:6px;padding:7px 9px;font:12.5px Inter;background:#fff}
+code{background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:11px}
+#fx-tabla button{padding:3px 9px;font-size:11.5px}
 </style></head><body>
 <header><h1>Consolidado Legal por País</h1><span class="sub">Compliance · Global66 — reporte generado el ${generado}</span></header>
 <main>
@@ -62,6 +67,34 @@ button{background:#fff;color:var(--navy);border:1px solid var(--borde);border-ra
   <b>Abrir por:</b><select id="f-agr"></select>
   <button id="btn-exp">⌄ Expandir todo</button>
   <button id="btn-csv">⬇ Exportar CSV</button>
+  <button id="btn-ficha" style="background:var(--azul);color:#fff;border:0">➕ Agregar gasto/cobro</button>
+</div>
+<div id="zona-ficha" style="display:none">
+  <div class="titulo">Carga manual de gastos y cobros</div>
+  <div style="background:#fff;border:1px solid var(--borde);border-radius:12px;padding:16px 18px;margin-bottom:10px">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px 14px">
+      <label class="fx">Mes<select id="fx-mes"></select></label>
+      <label class="fx">Año<input type="number" id="fx-anio" min="2020" max="2100"></label>
+      <label class="fx">Solicitante<input id="fx-sol" placeholder="Quién lo pidió"></label>
+      <label class="fx">Proveedor / abogado<input id="fx-prov" placeholder="Ej: Aninat"></label>
+      <label class="fx">País<select id="fx-pais"><option>Chile</option><option>Colombia</option><option>Perú</option><option>Argentina</option></select></label>
+      <label class="fx">Tipo<select id="fx-con"><option>Gastos</option><option>Honorarios</option><option>Juicios y otros</option></select></label>
+      <label class="fx">Concepto / partida<input id="fx-cat" placeholder="Ej: Honorarios varios"></label>
+      <label class="fx">Moneda origen<select id="fx-mon"><option>CLP</option><option>USD</option><option>PEN</option><option>COP</option><option>ARS</option><option>UF</option></select></label>
+      <label class="fx">Monto origen<input type="number" id="fx-monto" step="any" min="0"></label>
+      <label class="fx">Monto CLP<input type="number" id="fx-clp" step="1" min="0" placeholder="auto"></label>
+      <label class="fx" style="grid-column:1/-1">Detalle<input id="fx-det" placeholder="Referencia, factura, descripción"></label>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap">
+      <button id="fx-add" style="background:var(--azul);color:#fff;border:0">Agregar al reporte</button>
+      <button id="fx-exp">⬇ Excel para SharePoint</button>
+      <span id="fx-msg" style="font-size:12.5px;color:#16a34a;font-weight:500"></span>
+    </div>
+    <p class="nota">Lo que agregues queda guardado <b>en este navegador</b> y entra a las tablas de esta página al instante.
+    Para que entre al consolidado oficial: <b>⬇ Excel para SharePoint</b> y sube ese archivo a la carpeta
+    <code>Consolidado Cobros - Pagos [Compliance]</code> — la próxima versión del reporte lo incluye automáticamente.</p>
+  </div>
+  <div class="scroll" id="fx-tabla"></div>
 </div>
 <div class="titulo">Resumen de gastos por conceptos legales / administrativos (CLP)</div>
 <div id="pivot"></div>
@@ -84,10 +117,18 @@ const el=i=>document.getElementById(i);
 el('f-agr').innerHTML=AGR.map(a=>'<option value="'+a.id+'">'+a.n+'</option>').join('');
 el('f-mes').innerHTML='<option value="">Todos</option>'+MESES.map((m,i)=>'<option value="'+(i+1)+'">'+m+'</option>').join('');
 el('f-anio').innerHTML='<option value="">Todos</option>'+[...new Set(D.registros.map(r=>r.anio).filter(Boolean))].sort().map(a=>'<option>'+a+'</option>').join('');
+const FK='consolidado-html-fichas';
+const fichasL=()=>{try{return JSON.parse(localStorage.getItem(FK)||'[]')}catch(e){return[]}};
+const TASA={CLP:1,USD:D.params.USD_CLP,PEN:D.params.PEN_CLP,COP:D.params.COP_CLP,ARS:D.params.ARS_CLP,UF:D.params.UF_CLP};
+const fichaAReg=f=>({anio:+f.anio,mes:+f.mes,dia:1,pais:f.pais,proveedor:f.prov||'Sin proveedor',
+  solicitante:f.sol||'',categoria:f.cat||'Carga manual',concepto:f.con,moneda:f.mon,
+  montoOrigen:+f.monto||0,clp:Math.round(f.clp!=null&&f.clp!==''?+f.clp:(+f.monto||0)*(TASA[f.mon]||1)),
+  usd:0,detalle:f.det||'',archivo:'(carga manual)',carpeta:'(carga manual)',fuente:'manual'});
+function todos(){return [...D.registros,...fichasL().map(f=>{const r=fichaAReg(f);r.usd=+(r.clp/(D.params.USD_CLP||1)).toFixed(2);return r})]}
 function filtrados(){
   const ver={'Gastos':el('f-g').checked,'Honorarios':el('f-h').checked,'Juicios y otros':el('f-j').checked};
   const fa=el('f-anio').value?+el('f-anio').value:null, fm=el('f-mes').value?+el('f-mes').value:null;
-  return D.registros.filter(r=>ver[r.concepto]&&(!fa||r.anio===fa)&&(!fm||r.mes===fm));
+  return todos().filter(r=>ver[r.concepto]&&(!fa||r.anio===fa)&&(!fm||r.mes===fm));
 }
 function nodo(){return{m:{},a:{},t:0,n:0,h:new Map()}}
 function acum(x,r){const k=r.anio+'-'+r.mes;x.m[k]=(x.m[k]||0)+r.clp;x.a[r.anio]=(x.a[r.anio]||0)+r.clp;x.t+=r.clp;x.n++}
@@ -141,6 +182,41 @@ el('btn-csv').addEventListener('click',()=>{
   const csv=[enc,...f].map(x=>x.map(c=>'"'+String(c==null?'':c).replace(/"/g,'""')+'"').join(';')).join('\\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\\ufeff'+csv],{type:'text/csv;charset=utf-8'}));
   a.download='consolidado_legal.csv';a.click()});
+el('fx-mes').innerHTML=MESES.map((m,i)=>'<option value="'+(i+1)+'">'+m+'</option>').join('');
+const hoyF=new Date();el('fx-anio').value=hoyF.getFullYear();el('fx-mes').value=hoyF.getMonth()+1;
+el('btn-ficha').addEventListener('click',()=>{const z=el('zona-ficha');z.style.display=z.style.display==='none'?'block':'none';if(z.style.display==='block')z.scrollIntoView({behavior:'smooth'})});
+function renderFichas(){
+  const l=fichasL();
+  el('fx-tabla').innerHTML=l.length?'<table><thead><tr><th class="etiqueta">Período</th><th class="etiqueta">Solicitante</th><th class="etiqueta">Proveedor</th><th>País</th><th>Tipo</th><th>Origen</th><th>CLP</th><th></th></tr></thead><tbody>'+
+    l.map(f=>{const r=fichaAReg(f);return '<tr><td class="etiqueta">'+MESES[f.mes-1]+' '+f.anio+'</td><td class="etiqueta">'+(f.sol||'')+'</td><td class="etiqueta">'+(f.prov||'')+'</td><td>'+f.pais+'</td><td>'+f.con+'</td><td class="num">'+f.mon+' '+fmt.format(+f.monto||0)+'</td><td class="num">'+$(r.clp)+'</td><td><button data-del="'+f.id+'">Borrar</button></td></tr>'}).join('')+'</tbody></table>'
+    :'<table><tbody><tr><td class="etiqueta">Aún no has agregado movimientos en este navegador.</td></tr></tbody></table>';
+  el('fx-tabla').querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>{
+    localStorage.setItem(FK,JSON.stringify(fichasL().filter(x=>String(x.id)!==b.dataset.del)));renderFichas();render()}));
+}
+el('fx-add').addEventListener('click',()=>{
+  const f={id:Date.now(),mes:+el('fx-mes').value,anio:+el('fx-anio').value,sol:el('fx-sol').value.trim(),
+    prov:el('fx-prov').value.trim(),pais:el('fx-pais').value,con:el('fx-con').value,cat:el('fx-cat').value.trim(),
+    mon:el('fx-mon').value,monto:el('fx-monto').value,clp:el('fx-clp').value,det:el('fx-det').value.trim()};
+  if(!f.monto&&!f.clp){el('fx-msg').textContent='⚠ Ingresa un monto';return}
+  if(!f.prov){el('fx-msg').textContent='⚠ Ingresa el proveedor';return}
+  localStorage.setItem(FK,JSON.stringify([...fichasL(),f]));
+  ['fx-sol','fx-prov','fx-cat','fx-monto','fx-clp','fx-det'].forEach(i=>el(i).value='');
+  el('fx-msg').textContent='✓ Agregado al reporte de esta página';setTimeout(()=>el('fx-msg').textContent='',3500);
+  renderFichas();render();
+});
+el('fx-exp').addEventListener('click',()=>{
+  const l=fichasL();
+  if(!l.length){el('fx-msg').textContent='⚠ No hay movimientos que exportar';return}
+  if(typeof XLSX==='undefined'){el('fx-msg').textContent='⚠ Sin conexión: no se pudo cargar el generador de Excel';return}
+  const filas=l.map(f=>{const r=fichaAReg(f);return{'Fecha':'01/'+String(f.mes).padStart(2,'0')+'/'+f.anio,
+    'Solicitante':f.sol||'','Proveedor':f.prov||'','Pais':f.pais,'Concepto':f.con,'Categoria':f.cat||'Carga manual',
+    'Moneda':f.mon,'Monto origen':+f.monto||0,'Monto CLP':r.clp,'Monto USD':+(r.clp/(D.params.USD_CLP||1)).toFixed(2),'Detalle':f.det||''}});
+  const ws=XLSX.utils.json_to_sheet(filas);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Carga manual');
+  const quien=(l[0].sol||'equipo').replace(/[^\wÁÉÍÓÚáéíóúñÑ]+/g,'-');
+  XLSX.writeFile(wb,'Carga manual - '+quien+' - '+l[0].anio+'-'+String(l[0].mes).padStart(2,'0')+'.xlsx');
+  el('fx-msg').textContent='✓ Excel generado: súbelo a la carpeta de SharePoint';
+});
+renderFichas();
 render();
 </script></body></html>`;
 }
