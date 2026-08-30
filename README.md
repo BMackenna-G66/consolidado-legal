@@ -74,6 +74,16 @@ Las fichas se guardan en el navegador de quien las carga, así que para consolid
 
 El archivo se puede llenar también a mano en Excel, respetando los encabezados (`Fecha, Solicitante, Proveedor, Pais, Concepto, Categoria, Moneda, Monto origen, Monto CLP, Monto USD, Detalle`). Así los datos quedan siempre dentro de SharePoint, sin depender de que nadie comparta su navegador.
 
+## Compartir el reporte sin que nadie más se conecte
+
+Si una sola persona mantiene los datos y el resto solo mira, **no hace falta Azure AD**. El script `scripts/reporte-html.mjs` genera un **reporte HTML autocontenido**: un archivo con los datos incrustados que se abre con doble clic, sin servidor, sin login y sin conexión.
+
+```bash
+cd scripts && node reporte-html.mjs
+```
+
+Ese archivo se sube a la carpeta de SharePoint. Quien tenga acceso lo abre y ve el mismo reporte —tarjetas, tabla de cuatro niveles, filtros por concepto/año/mes y exportación a CSV—, con los permisos de SharePoint y sin nada publicado fuera del tenant. Es una foto del momento: para actualizarla, se regenera y se reemplaza.
+
 ## Base maestra en Excel
 
 El botón **⬇ Base maestra Excel** descarga un libro con todo lo que la app leyó y calculó:
