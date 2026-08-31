@@ -13,9 +13,48 @@ window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pd
 
 const $id = id => document.getElementById(id);
 const PARAMS_KEY = 'consolidado-legal-params';
+const CARGA_KEY = 'consolidado-ultima-carga';
 
 let resultados = [];   // salida por archivo (estado, nota, registros)
 let archivosCrudos = null; // para reprocesar al cambiar parámetros
+let origenCarga = '';  // de dónde salió la carga vigente (ZIP, carpeta, SharePoint)
+
+// La última carga procesada queda guardada en el navegador: al volver a abrir
+// la app el reporte aparece solo, sin re-subir el ZIP.
+function guardarCarga() {
+  try {
+    localStorage.setItem(CARGA_KEY, JSON.stringify({
+      fecha: new Date().toISOString(), origen: origenCarga, resultados: resultadosArchivos,
+    }));
+    return true;
+  } catch {
+    localStorage.removeItem(CARGA_KEY); // no cabe en el navegador: se sigue sin guardar
+    return false;
+  }
+}
+
+function cargaGuardada() {
+  try {
+    const d = JSON.parse(localStorage.getItem(CARGA_KEY) || 'null');
+    return d && Array.isArray(d.resultados) && d.resultados.length ? d : null;
+  } catch { return null; }
+}
+
+function renderBannerCarga(fecha, guardada) {
+  const b = $id('banner-carga');
+  b.hidden = false;
+  const cuando = new Date(fecha).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' });
+  b.innerHTML = guardada
+    ? `<span>💾 <b>${origenCarga || 'Carga'}</b> del ${cuando}, guardada en este navegador: al volver a abrir la app, el reporte aparece solo. Para actualizar, carga el nuevo ZIP.</span>
+       <button class="boton secundario" id="btn-borrar-carga" type="button">Borrar datos guardados</button>`
+    : `<span>⚠ <b>${origenCarga || 'Carga'}</b> del ${cuando} — no se pudo guardar en este navegador (datos muy grandes); al recargar la página habrá que subir el ZIP de nuevo.</span>`;
+  const btn = $id('btn-borrar-carga');
+  if (btn) btn.addEventListener('click', () => {
+    if (!confirm('¿Borrar los datos guardados en este navegador? La app volverá a la portada vacía.')) return;
+    localStorage.removeItem(CARGA_KEY);
+    location.reload();
+  });
+}
 
 function paramsActuales() {
   try { return { ...DEFAULT_PARAMS, ...JSON.parse(localStorage.getItem(PARAMS_KEY) || '{}') }; }
@@ -29,6 +68,7 @@ $id('btn-local').addEventListener('click', async () => {
   try {
     progreso('Leyendo carpeta…');
     const { archivos } = await elegirCarpetaFSA(progreso);
+    origenCarga = 'Carpeta local';
     archivosCrudos = archivos;
     await procesarYRender();
   } catch (e) {
@@ -39,6 +79,7 @@ $id('btn-zip').addEventListener('click', () => $id('input-zip').click());
 $id('input-zip').addEventListener('change', async e => {
   if (!e.target.files.length) return;
   try {
+    origenCarga = `ZIP "${e.target.files[0].name}"`;
     archivosCrudos = await leerZip(e.target.files[0], progreso);
     await procesarYRender();
   } catch (err) { progreso('⚠ ' + (err.message || err)); }
@@ -48,6 +89,7 @@ $id('input-zip').addEventListener('change', async e => {
 $id('input-carpeta').addEventListener('change', async e => {
   if (!e.target.files.length) return;
   progreso('Leyendo carpeta…');
+  origenCarga = 'Carpeta local';
   archivosCrudos = await leerCarpetaLocal(e.target.files, progreso);
   await procesarYRender();
 });
@@ -63,6 +105,7 @@ $id('input-carpeta').addEventListener('change', async e => {
   const releer = async () => {
     progreso('Releyendo carpeta…');
     const { archivos } = await leerCarpetaRecordada(progreso);
+    origenCarga = `Carpeta "${dir.name}"`;
     archivosCrudos = archivos;
     await procesarYRender();
   };
@@ -85,6 +128,7 @@ $id('btn-sharepoint').addEventListener('click', async () => {
   }
   try {
     progreso('Conectando con Microsoft…');
+    origenCarga = 'SharePoint en vivo';
     archivosCrudos = await leerSharePoint(progreso);
     await procesarYRender();
   } catch (e) {
@@ -166,6 +210,12 @@ function progreso(msg) { $id('progreso').textContent = msg; }
 let resultadosArchivos = []; // solo lo leído de documentos, sin las fichas manuales
 
 async function procesarYRender() {
+  if (!archivosCrudos) {
+    // Los datos vigentes vienen de la carga guardada: no hay archivos crudos que
+    // reprocesar (p. ej. tras cambiar parámetros). Hay que volver a cargar el ZIP.
+    progreso('Estos datos vienen de la carga guardada — para reprocesar (nuevos parámetros), vuelve a cargar el ZIP.');
+    return;
+  }
   const params = paramsActuales();
   progreso(`Interpretando ${archivosCrudos.length} archivos…`);
   resultadosArchivos = [];
@@ -173,6 +223,7 @@ async function procesarYRender() {
   deduplicar(resultadosArchivos);
   enriquecerSolicitantes(resultadosArchivos);
   aplicarBaseHistorica(resultadosArchivos);
+  renderBannerCarga(new Date().toISOString(), guardarCarga());
   finalizarRender(params);
 }
 
@@ -432,15 +483,49 @@ $id('btn-ia').addEventListener('click', async () => {
   }
 });
 
+// Inventario de archivos plegado tras un botón y agrupado por estado, cada
+// estado en su propia tabla desplegable.
+const ESTADOS_ARCHIVO = {
+  error: ['❌ No leído', 'No se pudo extraer texto (escaneos sin capa de texto) — registrar a mano o pedir el PDF electrónico.'],
+  supuesto: ['⚠️ Con supuestos', 'Leídos correctamente; el monto usa una conversión configurable (USD, UF, IGV).'],
+  ok: ['✅ Procesado', 'Leídos sin supuestos.'],
+  omitido: ['⏭ Omitido', 'Sin monto propio: anexos de horas, respaldos y duplicados que ya aporta otro documento.'],
+};
+
 function renderArchivos() {
-  const orden = { error: 0, supuesto: 1, omitido: 2, ok: 3 };
-  const etiqueta = { ok: '✅ Procesado', supuesto: '⚠️ Con supuestos', error: '❌ No leído', omitido: '⏭ Omitido' };
-  const html = [...resultados]
-    .sort((a, b) => orden[a.estado] - orden[b.estado])
-    .map(r => `<div class="archivo-fila"><span class="estado ${r.estado}">${etiqueta[r.estado]}</span><span class="nombre">${r.ruta || r.archivo}</span><span class="nota">${r.nota || ''}</span></div>`)
-    .join('');
-  $id('lista-archivos').innerHTML = html || '<div class="archivo-fila">Sin archivos.</div>';
+  const cont = $id('lista-archivos');
+  const abiertos = new Set([...cont.querySelectorAll('details[open]')].map(d => d.dataset.estado));
+  const fmt = n => '$' + new Intl.NumberFormat('es-CL').format(Math.round(n));
+  const clpDe = r => (r.registros || []).reduce((s, x) => s + x.clp, 0);
+  let html = '';
+  for (const est of Object.keys(ESTADOS_ARCHIVO)) {
+    const lista = resultados.filter(r => r.estado === est);
+    if (!lista.length) continue;
+    const clp = lista.reduce((s, r) => s + clpDe(r), 0);
+    const filas = lista.map(r => `<tr>
+      <td class="etiqueta">${r.archivo}</td>
+      <td class="etiqueta">${String(r.ruta || '').split('/').slice(0, -1).join('/') || '(raíz)'}</td>
+      <td class="num">${(r.registros || []).length || ''}</td>
+      <td class="num">${clpDe(r) ? fmt(clpDe(r)) : ''}</td>
+      <td class="nota-archivo">${r.nota || ''}</td></tr>`).join('');
+    html += `<details class="grupo-archivos" data-estado="${est}"${abiertos.has(est) ? ' open' : ''}>
+      <summary><span class="estado ${est}">${ESTADOS_ARCHIVO[est][0]}</span><span class="conteo">${lista.length}</span>
+        <span class="resumen-grupo">${clp ? fmt(clp) + ' aportados · ' : ''}${ESTADOS_ARCHIVO[est][1]}</span></summary>
+      <div class="pivot-scroll"><table class="pivot"><thead><tr>
+        <th class="etiqueta">Archivo</th><th class="etiqueta">Carpeta</th><th>Movs.</th><th>CLP</th><th class="etiqueta">Nota</th>
+      </tr></thead><tbody>${filas}</tbody></table></div></details>`;
+  }
+  cont.innerHTML = html || '<div class="archivo-fila">Sin archivos.</div>';
+  const nErr = resultados.filter(r => r.estado === 'error').length;
+  const nSup = resultados.filter(r => r.estado === 'supuesto').length;
+  $id('btn-archivos').textContent = `📄 Archivos leídos (${resultados.length})`
+    + (nErr ? ` — ${nErr} sin leer` : '') + (nSup ? ` · ${nSup} con supuestos` : '');
 }
+
+$id('btn-archivos').addEventListener('click', () => {
+  const l = $id('lista-archivos');
+  l.hidden = !l.hidden;
+});
 
 // ---------- parámetros ----------
 
@@ -463,12 +548,20 @@ function montarPanelParams(params) {
   });
 }
 
-// ---------- arranque: SharePoint en vivo ----------
-// La app lee los documentos directamente desde SharePoint. Si el modo en línea
-// ya está configurado y hay sesión de Microsoft vigente, el reporte se genera
-// solo al abrir; si no, la portada explica qué falta.
+// ---------- arranque ----------
+// 1) Si hay una carga guardada de una visita anterior, el reporte aparece solo.
+// 2) Si no, y el modo SharePoint en vivo está configurado, se lee de ahí.
+// 3) Si no hay nada, la portada explica cómo cargar el ZIP.
 
 (async () => {
+  const previa = cargaGuardada();
+  if (previa) {
+    resultadosArchivos = previa.resultados;
+    origenCarga = previa.origen || 'Carga anterior';
+    renderBannerCarga(previa.fecha, true);
+    finalizarRender(paramsActuales());
+    return;
+  }
   if (!graphDisponible()) {
     $id('aviso-sin-datos').hidden = false;
     $id('btn-zip').classList.add('destacado');

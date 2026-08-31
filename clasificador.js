@@ -36,6 +36,10 @@ export function clasificar(registro) {
   const manual = leer(KEY_MANUAL)[normalizaCat(registro.categoria)];
   if (manual) return { concepto: manual, origen: 'Manual' };
   if (registro.fuente === 'base') return { concepto: registro.concepto, origen: 'Reportado' };
+  // Parte prorrateada de una boleta de honorarios: es un pago real al estudio,
+  // aunque el trabajo haya sido sobre juicios — no confundir con las cuantías
+  // de "Juicios y otros".
+  if (registro.prorrateo) return { concepto: registro.concepto || 'Honorarios', origen: 'Documento' };
   const ia = leer(KEY_IA)[normalizaCat(registro.categoria)];
   if (ia) return { concepto: ia, origen: 'IA' };
   const h = heuristica(registro.categoria);

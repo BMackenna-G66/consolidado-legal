@@ -77,10 +77,16 @@
   /* Panel archivos */
   #archivos { margin-top: 30px; }
   .archivo-fila { display: flex; gap: 10px; align-items: baseline; padding: 7px 12px; background: #fff; border: 1px solid var(--borde); border-radius: 8px; margin-bottom: 6px; font-size: 12.5px; }
-  .archivo-fila .estado { font-weight: 600; width: 130px; flex-shrink: 0; }
   .estado.ok { color: var(--ok); } .estado.supuesto { color: var(--warn); } .estado.error { color: var(--err); } .estado.omitido { color: #94a3b8; }
-  .archivo-fila .nombre { font-weight: 500; color: var(--navy); }
-  .archivo-fila .nota { color: #64748b; }
+  details.grupo-archivos { background: #fff; border: 1px solid var(--borde); border-radius: 10px; margin-bottom: 8px; }
+  details.grupo-archivos summary { cursor: pointer; padding: 10px 14px; font-size: 13px; font-weight: 600; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  details.grupo-archivos summary::-webkit-details-marker { display: none; }
+  details.grupo-archivos summary::before { content: '▸'; color: var(--azul); transition: transform .15s; display: inline-block; }
+  details.grupo-archivos[open] summary::before { transform: rotate(90deg); }
+  details.grupo-archivos .resumen-grupo { color: #64748b; font-weight: 400; font-size: 12px; }
+  details.grupo-archivos td.nota-archivo { color: #64748b; white-space: normal; min-width: 260px; }
+  /* Aviso de carga guardada */
+  #banner-carga { background: #eef6ff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; font-size: 12.5px; color: #1e3a8a; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   /* Parámetros */
   #panel-params { background: #fff; border: 1px solid var(--borde); border-radius: 12px; padding: 18px 22px; margin-bottom: 20px; display: none; }
   #panel-params.visible { display: block; }
@@ -175,6 +181,7 @@
       <div class="params-grid" id="params-grid"></div>
       <div class="nota-params">Los cambios recalculan el reporte al instante y quedan guardados en este navegador. Estos valores replican los supuestos del Excel original.</div>
     </div>
+    <div id="banner-carga" hidden></div>
     <div id="tarjetas"></div>
     <div id="filtros">
       <b>Concepto:</b>
@@ -259,8 +266,10 @@
       <div class="pivot-scroll" id="tabla-mantenedor"></div>
     </div>
     <div id="archivos">
-      <div class="pivot-titulo">Archivos leídos</div>
-      <div id="lista-archivos"></div>
+      <div style="margin-top:26px">
+        <button class="boton secundario" id="btn-archivos" type="button">📄 Archivos leídos</button>
+      </div>
+      <div id="lista-archivos" hidden></div>
     </div>
   </section>
 </main>

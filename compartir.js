@@ -49,6 +49,15 @@ tr.fila-total{font-weight:700;background:#eef2ff;border-top:2px solid var(--azul
 .conteo{display:inline-block;margin-left:8px;font-size:10px;color:#94a3b8;background:#f1f5f9;border-radius:9px;padding:1px 7px}
 .nota{font-size:12px;color:#64748b;margin:6px 0 0}
 button{background:#fff;color:var(--navy);border:1px solid var(--borde);border-radius:8px;padding:7px 14px;font:500 13px Inter;cursor:pointer}
+details.grupo{background:#fff;border:1px solid var(--borde);border-radius:10px;margin:8px 0}
+details.grupo summary{cursor:pointer;padding:9px 14px;font-size:13px;font-weight:600;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+details.grupo summary::-webkit-details-marker{display:none}
+details.grupo summary::before{content:'▸';color:var(--azul);transition:transform .15s;display:inline-block}
+details.grupo[open] summary::before{transform:rotate(90deg)}
+details.grupo .g-desc{color:#64748b;font-weight:400;font-size:12px}
+details.grupo .g-scroll{overflow-x:auto}
+details.grupo td.g-nota{white-space:normal;min-width:260px;color:#64748b}
+.est-ok{color:#16a34a}.est-supuesto{color:#b45309}.est-error{color:#dc2626}.est-omitido{color:#94a3b8}
 label.fx{display:flex;flex-direction:column;gap:4px;font-size:11.5px;font-weight:500;color:#475569}
 label.fx input,label.fx select{border:1px solid var(--borde);border-radius:6px;padding:7px 9px;font:12.5px Inter;background:#fff}
 code{background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:11px}
@@ -98,8 +107,8 @@ code{background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:11px}
 </div>
 <div class="titulo">Resumen de gastos por conceptos legales / administrativos (CLP)</div>
 <div id="pivot"></div>
-<div class="titulo">Archivos leídos</div>
-<div class="scroll" id="archivos"></div>
+<div style="margin-top:26px"><button id="btn-arch">📄 Archivos leídos</button></div>
+<div id="archivos" style="display:none"></div>
 <p class="nota">Reporte estático: refleja los documentos existentes al momento de generarlo. Para una versión al día, regenerarlo desde la app y reemplazar este archivo.</p>
 </main>
 <script>
@@ -169,8 +178,22 @@ function render(){
   if(li)ht+=t('País con mayor gasto',li[1],li[0]);
   el('tarjetas').innerHTML=ht;
 }
-el('archivos').innerHTML='<table><thead><tr><th class="etiqueta">Archivo</th><th>Estado</th><th>Movs.</th><th>CLP</th><th class="etiqueta">Nota</th></tr></thead><tbody>'+
- D.archivos.map(a=>'<tr><td class="etiqueta">'+a.ruta+'</td><td>'+a.estado+'</td><td class="num">'+a.n+'</td><td class="num">'+$(a.clp)+'</td><td class="etiqueta">'+a.nota+'</td></tr>').join('')+'</tbody></table>';
+const EST={error:['❌ No leído','No se pudo extraer texto (escaneos sin capa de texto) — registrar a mano o pedir el PDF electrónico.'],
+ supuesto:['⚠️ Con supuestos','Leídos correctamente; el monto usa una conversión configurable (USD, UF, IGV).'],
+ ok:['✅ Procesado','Leídos sin supuestos.'],
+ omitido:['⏭ Omitido','Sin monto propio: anexos de horas, respaldos y duplicados que ya aporta otro documento.']};
+el('archivos').innerHTML=Object.keys(EST).map(est=>{
+  const l=D.archivos.filter(a=>a.estado===est);
+  if(!l.length)return '';
+  const clp=l.reduce((s,a)=>s+(a.clp||0),0);
+  return '<details class="grupo"><summary><span class="est-'+est+'">'+EST[est][0]+'</span><span class="conteo">'+l.length+'</span><span class="g-desc">'+(clp?$(clp)+' aportados · ':'')+EST[est][1]+'</span></summary>'+
+    '<div class="g-scroll"><table><thead><tr><th class="etiqueta">Archivo</th><th>Movs.</th><th>CLP</th><th class="etiqueta">Nota</th></tr></thead><tbody>'+
+    l.map(a=>'<tr><td class="etiqueta">'+a.ruta+'</td><td class="num">'+(a.n||'')+'</td><td class="num">'+$(a.clp)+'</td><td class="g-nota">'+(a.nota||'')+'</td></tr>').join('')+
+    '</tbody></table></div></details>'}).join('');
+const nErr=D.archivos.filter(a=>a.estado==='error').length;
+const nSup=D.archivos.filter(a=>a.estado==='supuesto').length;
+el('btn-arch').textContent='📄 Archivos leídos ('+D.archivos.length+')'+(nErr?' — '+nErr+' sin leer':'')+(nSup?' · '+nSup+' con supuestos':'');
+el('btn-arch').addEventListener('click',()=>{const z=el('archivos');z.style.display=z.style.display==='none'?'block':'none'});
 ['f-g','f-h','f-j','f-anio','f-mes','f-agr'].forEach(i=>el(i).addEventListener('change',render));
 el('btn-exp').addEventListener('click',()=>{
   const fs=[...el('pivot').querySelectorAll('tr[data-ruta]')], cer=fs.some(f=>f.classList.contains('oculto'));
