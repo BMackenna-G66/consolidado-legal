@@ -4,9 +4,11 @@
 
 import { MESES } from './config.js';
 
-export function generarHTMLCompartir({ registros, archivos, params }) {
+// carpetaUrl: vínculo de la carpeta de SharePoint donde se suben las plantillas.
+// Va incrustado en el HTML generado (que vive en SharePoint), nunca en el repo.
+export function generarHTMLCompartir({ registros, archivos, params, carpetaUrl }) {
   const generado = new Date().toLocaleString('es-CL');
-  const datos = JSON.stringify({ registros, archivos, params, generado, MESES });
+  const datos = JSON.stringify({ registros, archivos, params, generado, MESES, carpetaUrl: carpetaUrl || '' });
 
   return `<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -58,6 +60,13 @@ details.grupo .g-desc{color:#64748b;font-weight:400;font-size:12px}
 details.grupo .g-scroll{overflow-x:auto}
 details.grupo td.g-nota{white-space:normal;min-width:260px;color:#64748b}
 .est-ok{color:#16a34a}.est-supuesto{color:#b45309}.est-error{color:#dc2626}.est-omitido{color:#94a3b8}
+.pasos{background:#fff;border:1px solid var(--borde);border-radius:12px;padding:16px 18px;margin-bottom:10px}
+.pasos>b{font-size:13.5px;color:var(--navy)}
+.paso{display:flex;gap:11px;align-items:flex-start;margin-top:12px;font-size:12.5px;line-height:1.5}
+.paso .num{background:var(--azul);color:#fff;border-radius:50%;width:21px;height:21px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700}
+.aviso-pend{background:#fffbeb;border:1px solid #fcd34d;color:#92400e;border-radius:10px;padding:10px 14px;font-size:12.5px;margin-bottom:10px}
+.badge-pend{background:#fef3c7;color:#92400e;border-radius:9px;padding:1px 8px;font-size:11px;font-weight:600;white-space:nowrap}
+.badge-env{background:#dcfce7;color:#166534;border-radius:9px;padding:1px 8px;font-size:11px;font-weight:600;white-space:nowrap}
 label.fx{display:flex;flex-direction:column;gap:4px;font-size:11.5px;font-weight:500;color:#475569}
 label.fx input,label.fx select{border:1px solid var(--borde);border-radius:6px;padding:7px 9px;font:12.5px Inter;background:#fff}
 code{background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:11px}
@@ -96,13 +105,22 @@ code{background:#f1f5f9;padding:1px 5px;border-radius:4px;font-size:11px}
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap">
       <button id="fx-add" style="background:var(--azul);color:#fff;border:0">Agregar al reporte</button>
-      <button id="fx-exp">⬇ Excel para SharePoint</button>
       <span id="fx-msg" style="font-size:12.5px;color:#16a34a;font-weight:500"></span>
     </div>
-    <p class="nota">Lo que agregues queda guardado <b>en este navegador</b> y entra a las tablas de esta página al instante.
-    Para que entre al consolidado oficial: <b>⬇ Excel para SharePoint</b> y sube ese archivo a la carpeta
-    <code>Consolidado Cobros - Pagos [Compliance]</code> — la próxima versión del reporte lo incluye automáticamente.</p>
   </div>
+  <div class="pasos">
+    <b>Para que estos movimientos lleguen al consolidado oficial</b>
+    <p class="nota">Esta página no puede enviar datos por sí sola: lo que agregas queda <b>solo en este navegador</b>.
+    Son dos pasos y quedan registrados para el equipo de Compliance.</p>
+    <div class="paso"><span class="num">1</span>
+      <div><b>Descarga la planilla</b> con lo que agregaste.
+        <div style="margin-top:6px"><button id="fx-exp" style="background:var(--azul);color:#fff;border:0">⬇ Descargar planilla</button></div></div></div>
+    <div class="paso"><span class="num">2</span>
+      <div><b>Súbela a la carpeta de SharePoint</b> <code>Consolidado Cobros - Pagos [Compliance]</code>
+        (dentro de la carpeta del proveedor, o en la raíz). Compliance la incorpora al consolidado en la siguiente actualización.
+        <div id="fx-link-zona" style="margin-top:6px"></div></div></div>
+  </div>
+  <div id="fx-pendiente" class="aviso-pend" style="display:none"></div>
   <div class="scroll" id="fx-tabla"></div>
 </div>
 <div class="titulo">Resumen de gastos por conceptos legales / administrativos (CLP)</div>
@@ -208,10 +226,21 @@ el('btn-csv').addEventListener('click',()=>{
 el('fx-mes').innerHTML=MESES.map((m,i)=>'<option value="'+(i+1)+'">'+m+'</option>').join('');
 const hoyF=new Date();el('fx-anio').value=hoyF.getFullYear();el('fx-mes').value=hoyF.getMonth()+1;
 el('btn-ficha').addEventListener('click',()=>{const z=el('zona-ficha');z.style.display=z.style.display==='none'?'block':'none';if(z.style.display==='block')z.scrollIntoView({behavior:'smooth'})});
+// El paso 2 (subir a SharePoint) es manual: se marca cuándo se descargó cada
+// movimiento y se avisa mientras queden pendientes de enviar.
+if(D.carpetaUrl)el('fx-link-zona').innerHTML='<a href="'+D.carpetaUrl+'" target="_blank" rel="noopener"><button>📂 Abrir carpeta en SharePoint</button></a>';
+else el('fx-link-zona').innerHTML='<span class="nota">Búscala en tu SharePoint de Compliance, o pídele el vínculo a quien te compartió este reporte.</span>';
 function renderFichas(){
   const l=fichasL();
-  el('fx-tabla').innerHTML=l.length?'<table><thead><tr><th class="etiqueta">Período</th><th class="etiqueta">Solicitante</th><th class="etiqueta">Proveedor</th><th>País</th><th>Tipo</th><th>Origen</th><th>CLP</th><th></th></tr></thead><tbody>'+
-    l.map(f=>{const r=fichaAReg(f);return '<tr><td class="etiqueta">'+MESES[f.mes-1]+' '+f.anio+'</td><td class="etiqueta">'+(f.sol||'')+'</td><td class="etiqueta">'+(f.prov||'')+'</td><td>'+f.pais+'</td><td>'+f.con+'</td><td class="num">'+f.mon+' '+fmt.format(+f.monto||0)+'</td><td class="num">'+$(r.clp)+'</td><td><button data-del="'+f.id+'">Borrar</button></td></tr>'}).join('')+'</tbody></table>'
+  const pend=l.filter(f=>!f.env);
+  const av=el('fx-pendiente');
+  if(pend.length){av.style.display='block';
+    av.innerHTML='⚠ <b>'+pend.length+' movimiento(s) sin enviar.</b> Están guardados solo en este navegador: nadie más los ve todavía. Completa el paso 1 y el paso 2 de arriba.'}
+  else av.style.display='none';
+  el('fx-tabla').innerHTML=l.length?'<table><thead><tr><th class="etiqueta">Período</th><th class="etiqueta">Solicitante</th><th class="etiqueta">Proveedor</th><th>País</th><th>Tipo</th><th>Origen</th><th>CLP</th><th>Envío</th><th></th></tr></thead><tbody>'+
+    l.map(f=>{const r=fichaAReg(f);
+      const est=f.env?'<span class="badge-env">✓ Descargado '+f.env+'</span>':'<span class="badge-pend">Sin enviar</span>';
+      return '<tr><td class="etiqueta">'+MESES[f.mes-1]+' '+f.anio+'</td><td class="etiqueta">'+(f.sol||'')+'</td><td class="etiqueta">'+(f.prov||'')+'</td><td>'+f.pais+'</td><td>'+f.con+'</td><td class="num">'+f.mon+' '+fmt.format(+f.monto||0)+'</td><td class="num">'+$(r.clp)+'</td><td>'+est+'</td><td><button data-del="'+f.id+'">Borrar</button></td></tr>'}).join('')+'</tbody></table>'
     :'<table><tbody><tr><td class="etiqueta">Aún no has agregado movimientos en este navegador.</td></tr></tbody></table>';
   el('fx-tabla').querySelectorAll('[data-del]').forEach(b=>b.addEventListener('click',()=>{
     localStorage.setItem(FK,JSON.stringify(fichasL().filter(x=>String(x.id)!==b.dataset.del)));renderFichas();render()}));
@@ -235,9 +264,15 @@ el('fx-exp').addEventListener('click',()=>{
     'Solicitante':f.sol||'','Proveedor':f.prov||'','Pais':f.pais,'Concepto':f.con,'Categoria':f.cat||'Carga manual',
     'Moneda':f.mon,'Monto origen':+f.monto||0,'Monto CLP':r.clp,'Monto USD':+(r.clp/(D.params.USD_CLP||1)).toFixed(2),'Detalle':f.det||''}});
   const ws=XLSX.utils.json_to_sheet(filas);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Carga manual');
-  const quien=(l[0].sol||'equipo').replace(/[^\wÁÉÍÓÚáéíóúñÑ]+/g,'-');
+  const quien=(l[0].sol||'equipo').replace(/[^\\wÁÉÍÓÚáéíóúñÑ]+/g,'-').replace(/^-|-$/g,'');
   XLSX.writeFile(wb,'Carga manual - '+quien+' - '+l[0].anio+'-'+String(l[0].mes).padStart(2,'0')+'.xlsx');
-  el('fx-msg').textContent='✓ Excel generado: súbelo a la carpeta de SharePoint';
+  const hoy=new Date().toLocaleDateString('es-CL');
+  localStorage.setItem(FK,JSON.stringify(fichasL().map(f=>({...f,env:f.env||hoy}))));
+  renderFichas();
+  el('fx-msg').textContent='';
+  el('fx-pendiente').style.display='block';
+  el('fx-pendiente').innerHTML='📥 <b>Planilla descargada.</b> Falta el paso 2: súbela a la carpeta de SharePoint para que llegue a Compliance.'
+    +(D.carpetaUrl?' <a href="'+D.carpetaUrl+'" target="_blank" rel="noopener">Abrir carpeta</a>':'');
 });
 renderFichas();
 render();

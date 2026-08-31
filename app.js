@@ -1,7 +1,7 @@
 // Orquestador: carga archivos, los procesa con los parsers y pinta el reporte.
 
 import { DEFAULT_PARAMS, MESES } from './config.js';
-import { procesarArchivo, deduplicar, aplicarBaseHistorica, enriquecerSolicitantes } from './parsers.js';
+import { procesarArchivo, deduplicar, aplicarBaseHistorica, enriquecerSolicitantes, parseCargaManual } from './parsers.js';
 import { leerCarpetaLocal, leerSharePoint, graphDisponible, soportaFSA, elegirCarpetaFSA, leerCarpetaRecordada, carpetaGuardada, setClientId, leerZip } from './fuentes.js';
 import { generarHTMLCompartir } from './compartir.js';
 import { construirPivot, renderPivot, renderResumenTarjetas, exportarCSV, exportarBaseMaestra, AGRUPACIONES } from './reporte.js';
@@ -167,7 +167,18 @@ $id('btn-compartir').addEventListener('click', () => {
     clp: Math.round((res.registros || []).reduce((s2, r) => s2 + r.clp, 0)),
     nota: res.nota || '',
   }));
-  const html = generarHTMLCompartir({ registros, archivos, params });
+  // Vínculo de la carpeta donde el equipo sube las planillas de carga manual:
+  // se incrusta en el HTML generado (que vive en SharePoint), no en el repo.
+  let carpetaUrl = localStorage.getItem('consolidado-share-url') || '';
+  if (!carpetaUrl) {
+    carpetaUrl = (prompt(
+      'Pega el vínculo de la carpeta de SharePoint "Consolidado Cobros - Pagos [Compliance]".\n\n' +
+      'Se incrusta en el reporte para que quien cargue un gasto pueda abrir la carpeta y subir\n' +
+      'su planilla de un clic. Puedes dejarlo en blanco: el reporte igual se genera.'
+    ) || '').trim();
+    if (carpetaUrl) localStorage.setItem('consolidado-share-url', carpetaUrl);
+  }
+  const html = generarHTMLCompartir({ registros, archivos, params, carpetaUrl });
   window.__ultimoCompartir = { kb: Math.round(html.length / 1024), movimientos: registros.length };
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
@@ -380,9 +391,27 @@ $id('fi-excel').addEventListener('click', () => {
 $id('fi-importar-btn').addEventListener('click', () => $id('fi-importar').click());
 $id('fi-importar').addEventListener('change', async e => {
   if (!e.target.files.length) return;
+  const archivo = e.target.files[0];
   try {
-    const { nuevas, actualizadas } = await importarFichasJSON(e.target.files[0]);
-    $id('fi-msg').textContent = `✓ ${nuevas} nueva(s), ${actualizadas} actualizada(s)`;
+    if (/\.xlsx?$/i.test(archivo.name)) {
+      // Planilla de carga manual que alguien envió por Teams o correo en vez de
+      // subirla a SharePoint: entra igual, como fichas de este navegador.
+      const { registros } = parseCargaManual(await archivo.arrayBuffer(), '', paramsActuales(), archivo.name);
+      for (const r of registros) {
+        guardarFicha({
+          id: nuevoId(), mes: r.mes, anio: r.anio, dia: r.dia || 1,
+          solicitante: r.solicitante || '', proveedor: r.proveedor, pais: r.pais,
+          concepto: r.concepto, categoria: r.categoria, moneda: r.moneda,
+          montoOrigen: r.montoOrigen, clpManual: r.clp,
+          detalle: (r.detalle ? r.detalle + ' · ' : '') + `planilla ${archivo.name}`,
+          registrado: new Date().toISOString(),
+        });
+      }
+      $id('fi-msg').textContent = `✓ ${registros.length} movimiento(s) importados de la planilla`;
+    } else {
+      const { nuevas, actualizadas } = await importarFichasJSON(archivo);
+      $id('fi-msg').textContent = `✓ ${nuevas} nueva(s), ${actualizadas} actualizada(s)`;
+    }
     refrescarConFichas();
   } catch (err) { $id('fi-msg').textContent = '⚠ ' + (err.message || err); }
   e.target.value = '';
