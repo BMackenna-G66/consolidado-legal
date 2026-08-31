@@ -538,6 +538,75 @@ function atribuidorDeProveedores(wb) {
   };
 }
 
+// Colombia se lleva en sus propias hojas ("Colombia - Interno" = Garrigues,
+// "Colombia - Externo" = requerimientos), y NO siempre se traspasa a la hoja
+// "Base resumen": ahí Colombia se corta en octubre 2025 aunque las hojas de
+// origen llegan hasta junio 2026. Se leen directo, solo en los periodos que la
+// Base resumen no cubre, para no duplicar lo ya reportado.
+function parseHojasColombia(wb, cubiertos, archivo) {
+  const registros = [];
+  const per = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const nombreHoja = re => wb.SheetNames.find(n => re.test(n));
+
+  const interno = nombreHoja(/colombia\s*-\s*interno/i);
+  if (interno) {
+    const filas = filasDeHoja(wb.Sheets[interno]);
+    const H = (filas[0] || []).map(h => String(h ?? ''));
+    const c = {
+      fecha: buscaColumna(H, /fecha/i), prov: 1,
+      desc: buscaColumna(H, /descripci/i), cat: buscaColumna(H, /categor/i),
+      valor: buscaColumna(H, /valor/i), tipo: buscaColumna(H, /^tipo$/i),
+    };
+    for (const f of filas.slice(1)) {
+      const d = f?.[c.fecha];
+      if (!(d instanceof Date) || isNaN(d)) continue;
+      const v = numeroUS(f[c.valor]);
+      if (!isFinite(v) || v <= 0) continue;
+      if (cubiertos.has(per(d))) continue;
+      const prov = String(f[c.prov] ?? '').trim();
+      registros.push({
+        dia: d.getDate(), mes: d.getMonth() + 1, anio: d.getFullYear(), pais: 'Colombia',
+        proveedor: prov ? prov.charAt(0).toUpperCase() + prov.slice(1).toLowerCase() : 'Garrigues',
+        categoria: String(f[c.cat] ?? 'Asesoría legal Colombia').trim(),
+        concepto: /honorario|asesor/i.test(String(f[c.tipo] ?? '')) ? 'Honorarios' : 'Gastos',
+        moneda: 'CLP', montoOrigen: v, clp: Math.round(v), archivo,
+        detalle: String(f[c.desc] ?? '').replace(/\s+/g, ' ').trim().slice(0, 160),
+        solicitante: '', fuente: 'base',
+      });
+    }
+  }
+
+  const externo = nombreHoja(/colombia\s*-\s*externo/i);
+  if (externo) {
+    const filas = filasDeHoja(wb.Sheets[externo]);
+    const hIdx = filas.findIndex(f => f && f.some(x => /cop\s*a\s*clp/i.test(String(x ?? ''))));
+    if (hIdx >= 0) {
+      const H = filas[hIdx].map(h => String(h ?? ''));
+      const c = {
+        fecha: buscaColumna(H, /fecha de requerimiento/i, /^fecha/i),
+        cat: buscaColumna(H, /categor/i), desc: buscaColumna(H, /descripci/i),
+        clp: buscaColumna(H, /cop\s*a\s*clp/i),
+      };
+      for (const f of filas.slice(hIdx + 1)) {
+        const d = f?.[c.fecha];
+        if (!(d instanceof Date) || isNaN(d)) continue;
+        const v = numeroUS(f[c.clp]);
+        if (!isFinite(v) || v <= 0) continue;
+        if (cubiertos.has(per(d))) continue;
+        registros.push({
+          dia: d.getDate(), mes: d.getMonth() + 1, anio: d.getFullYear(), pais: 'Colombia',
+          proveedor: 'Requerimientos externos',
+          categoria: String(f[c.cat] ?? 'Requerimientos').trim(),
+          concepto: 'Gastos', moneda: 'CLP', montoOrigen: v, clp: Math.round(v), archivo,
+          detalle: String(f[c.desc] ?? '').replace(/\s+/g, ' ').trim().slice(0, 160),
+          solicitante: '', fuente: 'base',
+        });
+      }
+    }
+  }
+  return registros;
+}
+
 // Base histórica: hoja "Base resumen" del Consolidado Paises.xlsx.
 // Replica la lógica del Excel: esta base plana alimenta las tablas resumen.
 // Los valores ya reportados ahí se respetan tal cual (no se recalculan).
@@ -584,8 +653,16 @@ export function parseBaseResumen(buf, ruta, params, archivo) {
       archivo, detalle: '', fuente: 'base',
     });
   }
+  // Colombia: completar los periodos que la Base resumen no alcanzó a recoger
+  const cubiertosCol = new Set(registros.filter(r => r.pais === 'Colombia')
+    .map(r => `${r.anio}-${String(r.mes).padStart(2, '0')}`));
+  const colombia = parseHojasColombia(wb, cubiertosCol, archivo);
+  registros.push(...colombia);
+  const perCol = [...new Set(colombia.map(r => `${r.anio}-${String(r.mes).padStart(2, '0')}`))].sort();
+
   return { registros, estado: 'ok', fuente: 'base',
-    nota: `${registros.length} movimientos históricos; proveedor identificado en ${atribuidos} cruzando las hojas del propio Excel` };
+    nota: `${registros.length} movimientos históricos; proveedor identificado en ${atribuidos} cruzando las hojas del propio Excel`
+      + (colombia.length ? ` · ${colombia.length} movimientos de Colombia recuperados de sus hojas de origen (${perCol.join(', ')}), que no estaban en la hoja "Base resumen"` : '') };
 }
 
 // Los documentos de las carpetas son la fuente principal: traen proveedor,
